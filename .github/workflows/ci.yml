@@ -21,3 +21,16 @@ jobs:
         run: pip install -e ".[dev]"
       - name: Run tests
         run: pytest -q
+      - name: Install mcp extra and smoke-test the server
+        run: |
+          pip install -e ".[mcp]"
+          cd examples/demo-repo
+          archsteer init && archsteer map
+          python -c "
+          import archsteer.mcp_server as s
+          from pathlib import Path
+          s._root = Path('.')
+          import json
+          print(json.dumps(s.current_architecture()))
+          print(json.dumps(s.check_file('src/controllers/payment_controller.js')))
+          "

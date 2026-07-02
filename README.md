@@ -18,7 +18,7 @@ Everything is a projection of one code-derived model — `.archsteer/model.json`
    MAP ──── DOCUMENT ──── GOVERN ──── STEER ──── EVOLVE
   model    living docs   fitness     agent     report.html
   from     + auto ADRs   functions   guardrails  (drift/
-  source   + diagrams    + ratchet   + (MCP)     decisions)
+  source   + diagrams    + ratchet   + MCP       decisions)
 ```
 
 ## Install
@@ -26,6 +26,7 @@ Everything is a projection of one code-derived model — `.archsteer/model.json`
 ```bash
 pip install archsteer                 # regex engine, zero native deps
 pip install "archsteer[treesitter]"   # optional native acceleration
+pip install "archsteer[mcp]"          # optional: the local MCP server (below)
 ```
 
 ## Quickstart
@@ -71,6 +72,28 @@ rules:
 Rule types: `required_layer_for_data_access`, `forbidden_import`, `forbidden_data_access`,
 `forbidden_layer_edge`.
 
+## Using with AI agents (MCP)
+
+`archsteer mcp` runs a local MCP server over stdio — spawned by your own editor/agent,
+never hosted by us. It reads only what `init`/`map`/`govern` already wrote to `.archsteer/`
+on disk, so there's no network call and nothing leaves your machine. It exposes three tools:
+
+- `current_architecture` — component/layer counts, conformance/drift, the declared target.
+- `get_target_pattern` — the invariants that apply to a file, *before* you write to it.
+- `check_file` — whether a file you just edited conforms, without waiting for CI.
+
+Add it to Claude Code:
+
+```bash
+claude mcp add archsteer -- archsteer mcp
+```
+
+Or to any MCP-compatible client's config (Cursor, etc.):
+
+```json
+{ "mcpServers": { "archsteer": { "command": "archsteer", "args": ["mcp"] } } }
+```
+
 ## CI / pre-commit
 
 - GitHub Action: `.github/workflows/archsteer.yml` (maps, drafts ADRs, runs the net-new gate,
@@ -86,10 +109,13 @@ archsteer init && archsteer map && archsteer report   # open .archsteer/report.h
 
 ## Roadmap
 
-- **Phase 2** — cloud control plane (Next.js + Supabase): multi-repo situation room with
-  drift/decision time-series.
-- **Phase 3** — `archsteer mcp`: an MCP server so agents query the live model + intent mid-edit.
-- **Phase 4** — auth, org/repo model, billing.
+- **Shipped** — cloud control plane (Next.js + Supabase): multi-repo situation room with
+  drift/decision time-series. `archsteer mcp`: a local MCP server so agents query the live
+  model + intent mid-edit.
+- **Next** — an org-wide, hosted MCP server (Team tier) so agents can ask cross-repo questions
+  against the situation room — "what's our drift index," "which repos have pending ADRs" —
+  the same data as the dashboard, over MCP.
+- **Later** — auth, org/repo model, billing.
 
 ## Development
 

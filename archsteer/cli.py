@@ -8,6 +8,7 @@
     archsteer baseline snapshot accepted violations (the ratchet)
     archsteer check    fail on NET-NEW violations only (CI / pre-commit)
     archsteer steer    write agent guardrails into CLAUDE.md / AGENTS.md
+    archsteer mcp      local MCP server: agents query the model + intent mid-edit
     archsteer report   build the self-contained report.html
 """
 
@@ -233,6 +234,29 @@ def steer(
     payload = engine.synthesize(intent, model, files=files, task=task)
     written = engine.write(payload, targets=targets)
     console.print(f"[green]✓[/green] Steered: {', '.join(str(p.relative_to(ws.root)) for p in written) or '(no targets)'}")
+
+
+@app.command(name="mcp")
+def mcp_cmd(
+    path: Optional[str] = typer.Option(None, help="Repo root (default: cwd)."),
+) -> None:
+    """Start a local MCP server so agents query the model + intent mid-edit."""
+    ws = _ws(path)
+    _require_init(ws)
+    _load_model(ws)
+    try:
+        from archsteer.mcp_server import run as run_mcp
+    except ImportError:
+        console.print(
+            "[red]The MCP server needs an extra dependency.[/red] Install it with:\n"
+            "  [bold]pipx inject archsteer mcp[/bold]        (if installed via pipx)\n"
+            '  [bold]pip install "archsteer[mcp]"[/bold]  (if installed via pip)'
+        )
+        raise typer.Exit(1)
+    # stdout is reserved entirely for the MCP JSON-RPC stream once run_mcp()
+    # starts — any human-readable output must go to stderr, never stdout.
+    Console(stderr=True).print(f"[green]✓[/green] ArchSteer MCP server starting for [bold]{ws.root}[/bold] (stdio)…")
+    run_mcp(str(ws.root))
 
 
 def _render_report(ws: Workspace, model: ArchitectureModel) -> None:

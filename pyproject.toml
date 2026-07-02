@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "archsteer"
-version = "0.3.0"
+version = "0.4.0"
 description = "Living Architecture Control Plane for the AI-Dev Era"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -30,6 +30,11 @@ dependencies = [
 treesitter = [
     "tree-sitter>=0.21.0,<0.22.0",
     "tree-sitter-languages>=1.10.0",
+]
+# `archsteer mcp` — a local MCP server for AI agents. Optional so the base
+# install stays dependency-light; only pulled in by people who use it.
+mcp = [
+    "mcp>=1.2.0",
 ]
 dev = [
     "pytest>=8.0.0",
