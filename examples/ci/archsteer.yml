@@ -1,0 +1,38 @@
+name: ArchSteer
+
+# Governance gate: blocks net-new architecture violations and drafts ADRs for
+# structural decisions made in the PR. Existing debt (the baseline) is never blocked.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  archsteer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install ArchSteer
+        run: pip install archsteer
+
+      - name: Map architecture
+        run: archsteer map
+
+      - name: Draft ADRs for new decisions
+        run: archsteer adr
+
+      - name: Conformance gate (net-new only)
+        run: archsteer check
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: archsteer-report
+          path: .archsteer/report.html

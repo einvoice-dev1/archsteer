@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "archsteer"
+version = "0.1.0"
+description = "Living Architecture Control Plane for the AI-Dev Era"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "ArchSteer", email = "founders@archsteer.io" }]
+license = { text = "MIT" }
+classifiers = [
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "typer>=0.12.0",
+    "pydantic>=2.7.0",
+    "ruamel.yaml>=0.18.0",
+    "jinja2>=3.1.0",
+    "rich>=13.7.0",
+]
+
+[project.optional-dependencies]
+# Optional native acceleration. The engine runs fully without these via a
+# deterministic regex fallback (see archsteer/engine/parser.py), avoiding the
+# cross-compilation trap on contributor machines.
+treesitter = [
+    "tree-sitter>=0.21.0,<0.22.0",
+    "tree-sitter-languages>=1.10.0",
+]
+dev = [
+    "pytest>=8.0.0",
+    "black>=24.0.0",
+    "isort>=5.13.0",
+]
+
+[project.urls]
+Homepage = "https://www.archsteer.com"
+Documentation = "https://www.archsteer.com/get-started"
+Source = "https://github.com/einvoice-dev1/archsteer"
+Issues = "https://github.com/einvoice-dev1/archsteer/issues"
+Changelog = "https://www.archsteer.com/blog"
+
+[project.scripts]
+archsteer = "archsteer.cli:app"
+
+[tool.setuptools.packages.find]
+include = ["archsteer*"]
+
+[tool.setuptools.package-data]
+archsteer = ["packs/**/*", "templates/**/*"]

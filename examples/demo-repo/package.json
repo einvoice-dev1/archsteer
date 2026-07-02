@@ -1,0 +1,9 @@
+{
+  "name": "legacy-billing-api",
+  "version": "0.3.0",
+  "private": true,
+  "dependencies": {
+    "express": "^4.19.0",
+    "pg": "^8.11.0"
+  }
+}

@@ -1,0 +1,19 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+
+# --- ArchSteer generated artifacts (derived; intent/ADRs are committed) ---
+**/.archsteer/model.json
+**/.archsteer/model.prev.json
+**/.archsteer/report.html
+**/.archsteer/history/
+
+# --- OS ---
+.DS_Store

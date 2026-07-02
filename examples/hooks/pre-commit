@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# ArchSteer pre-commit gate. Install with:
+#   cp hooks/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+#
+# Blocks the commit only on NET-NEW architecture violations (the ratchet); existing
+# debt is allowed so you never have to freeze feature work mid-migration.
+
+set -e
+
+if ! command -v archsteer >/dev/null 2>&1; then
+  echo "archsteer not installed; skipping architecture gate. (pip install archsteer)"
+  exit 0
+fi
+
+archsteer check

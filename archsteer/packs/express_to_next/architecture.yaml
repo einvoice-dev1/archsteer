@@ -1,0 +1,45 @@
+version: 1
+target: "Migrate Express + raw SQL controllers to Next.js route handlers + the repository pattern"
+
+# Declared layers, outermost to innermost. Architects refine path conventions in
+# archsteer/engine/mapper.py LAYER_HINTS or by renaming directories.
+layers:
+  - route
+  - controller
+  - service
+  - repository
+  - model
+
+rules:
+  - id: no-raw-sql-outside-repository
+    type: required_layer_for_data_access
+    description: "Raw SQL may only live in the repository layer."
+    severity: error
+    allowed_layers: [repository]
+    operations: [RAW]
+    adr: .archsteer/adr/0001-repository-pattern.md
+    steer: >-
+      Do NOT execute raw SQL in controllers, routes, or services. Wrap all queries
+      in a repository under src/repositories/ and call that instead.
+
+  - id: no-express-framework
+    type: forbidden_import
+    description: "Express is legacy; new endpoints must be Next.js route handlers."
+    severity: error
+    scope: "**/*"
+    pattern: "^express$|^express/"
+    adr: .archsteer/adr/0002-nextjs-route-handlers.md
+    steer: >-
+      Do NOT create Express routers/handlers. Implement endpoints as Next.js App
+      Router route handlers under app/api/<route>/route.ts.
+
+  - id: controller-no-direct-db-client
+    type: forbidden_import
+    description: "Controllers must not import a DB driver directly; go through a repository."
+    severity: warn
+    scope_layer: controller
+    pattern: "(^pg$|^mysql2|^sqlite3|/db/client|database/connection)"
+    adr: .archsteer/adr/0001-repository-pattern.md
+    steer: >-
+      Controllers must depend on a repository module, never on a raw DB driver
+      (pg, mysql2, sqlite3) or the db client directly.
