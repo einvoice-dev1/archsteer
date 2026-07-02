@@ -4,4 +4,4 @@ One code-derived model (``model.json``) powers every pillar:
 MAP, DOCUMENT, GOVERN, STEER, EVOLVE.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

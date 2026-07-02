@@ -333,7 +333,7 @@ def push(
         "pending_decisions": pending,
         "changes": [c.model_dump() for c in feed.changes],
     }
-    endpoint = url or "https://archsteer.dev/api/ingest"
+    endpoint = url or "https://www.archsteer.com/api/ingest"
     req = urllib.request.Request(
         endpoint, data=json.dumps(payload).encode("utf-8"),
         headers={"Content-Type": "application/json",
