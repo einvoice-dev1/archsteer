@@ -15,7 +15,9 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
+import subprocess
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -299,12 +301,43 @@ def xray(path: Optional[str] = typer.Option(None, help="Repo root (default: cwd)
                   f"[bold]{ws.report_html.relative_to(ws.root)}[/bold] (open in a browser)")
 
 
+def _detect_repo_url(root: Path) -> Optional[str]:
+    """Best-effort public URL of the repo, from `git remote origin`.
+
+    Normalizes SSH/HTTPS git remotes to a browsable https URL so the situation
+    room can deep-link to the committed living docs. Returns None if unavailable.
+    """
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(root), "config", "--get", "remote.origin.url"],
+            capture_output=True, text=True, timeout=5,
+        )
+        remote = out.stdout.strip() if out.returncode == 0 else ""
+    except Exception:  # noqa: BLE001
+        return None
+    if not remote:
+        return None
+    # git@host:org/repo(.git) -> https://host/org/repo
+    m = re.match(r"^[\w.+-]+@([^:]+):(.+?)(?:\.git)?/?$", remote)
+    if m:
+        return f"https://{m.group(1)}/{m.group(2)}"
+    # ssh://git@host/org/repo(.git) or https://host/org/repo(.git)
+    m = re.match(r"^(?:ssh://)?(?:[\w.+-]+@)?(?:https?://)?([^/]+)/(.+?)(?:\.git)?/?$", remote)
+    if m and "." in m.group(1):
+        return f"https://{m.group(1)}/{m.group(2)}"
+    return None
+
+
 @app.command()
 def push(
     path: Optional[str] = typer.Option(None),
     url: Optional[str] = typer.Option(None, envvar="ARCHSTEER_URL", help="Ingest endpoint."),
     token: Optional[str] = typer.Option(None, envvar="ARCHSTEER_TOKEN", help="Org API token."),
     org: Optional[str] = typer.Option(None, envvar="ARCHSTEER_ORG", help="Organization slug."),
+    repo_url: Optional[str] = typer.Option(
+        None, envvar="ARCHSTEER_REPO_URL",
+        help="Public repo URL for docs deep-links (auto-detected from git remote).",
+    ),
 ) -> None:
     """Push the latest snapshot + conformance to the cloud situation room."""
     ws = _ws(path)
@@ -321,6 +354,7 @@ def push(
     payload = {
         "repo": model.repo_name,
         "org": org,
+        "repo_url": repo_url or _detect_repo_url(ws.root),
         "commit": model.commit_sha,
         "timestamp": model.timestamp,
         "components": len(model.components),
