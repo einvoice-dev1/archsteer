@@ -111,10 +111,9 @@ archsteer init && archsteer map && archsteer report   # open .archsteer/report.h
 
 - **Shipped** — cloud control plane (Next.js + Supabase): multi-repo situation room with
   drift/decision time-series. `archsteer mcp`: a local MCP server so agents query the live
-  model + intent mid-edit.
-- **Next** — an org-wide, hosted MCP server (Team tier) so agents can ask cross-repo questions
-  against the situation room — "what's our drift index," "which repos have pending ADRs" —
-  the same data as the dashboard, over MCP.
+  model + intent mid-edit. An org-wide, hosted MCP server (Team tier) so agents can ask
+  cross-repo questions against the situation room — "what's our drift index," "which repos
+  have pending ADRs" — the same data as the dashboard, over MCP.
 - **Later** — auth, org/repo model, billing.
 
 ## Development
