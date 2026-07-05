@@ -1,22 +1,22 @@
 {
-  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-07-09/server.schema.json",
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.einvoice-dev1/archsteer",
-  "description": "Architecture governance for AI coding agents: query the live code-derived architecture model, get file-scoped target patterns, and check files for net-new architecture violations mid-edit.",
+  "description": "Architecture governance for AI agents: query the live model, get target patterns, check files.",
   "repository": {
     "url": "https://github.com/einvoice-dev1/archsteer",
     "source": "github"
   },
   "version": "0.4.1",
-  "website_url": "https://www.archsteer.com",
+  "websiteUrl": "https://www.archsteer.com",
   "packages": [
     {
-      "registry_type": "pypi",
+      "registryType": "pypi",
       "identifier": "archsteer",
       "version": "0.4.1",
-      "runtime_hint": "uvx",
+      "runtimeHint": "uvx",
       "transport": { "type": "stdio" },
-      "package_arguments": [
-        { "type": "positional", "value": "mcp", "value_hint": "subcommand" }
+      "packageArguments": [
+        { "type": "positional", "value": "mcp", "valueHint": "subcommand" }
       ]
     }
   ]
