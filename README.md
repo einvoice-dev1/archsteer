@@ -1,4 +1,10 @@
+<!-- mcp-name: io.github.einvoice-dev1/archsteer -->
+
 # ArchSteer
+
+[![ArchSteer conformance](https://img.shields.io/endpoint?url=https%3A%2F%2Fwww.archsteer.com%2Fapi%2Fbadge%2Farchsteer)](https://www.archsteer.com)
+[![PyPI](https://img.shields.io/pypi/v/archsteer)](https://pypi.org/project/archsteer/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 **Living Architecture Control Plane for the AI-Dev Era.**
 
@@ -24,10 +30,12 @@ Everything is a projection of one code-derived model — `.archsteer/model.json`
 ## Install
 
 ```bash
-pip install archsteer                 # regex engine, zero native deps
+pip install archsteer                 # regex engine + the local MCP server, zero native deps
 pip install "archsteer[treesitter]"   # optional native acceleration
-pip install "archsteer[mcp]"          # optional: the local MCP server (below)
 ```
+
+(Since 0.4.1 the MCP server ships in the base install; `pip install "archsteer[mcp]"` still
+works as a no-op alias.)
 
 ## Quickstart
 
@@ -88,17 +96,36 @@ Add it to Claude Code:
 claude mcp add archsteer -- archsteer mcp
 ```
 
-Or to any MCP-compatible client's config (Cursor, etc.):
+Add it to Cursor with one click:
+[**Install in Cursor →**](cursor://anysphere.cursor-deeplink/mcp/install?name=archsteer&config=eyJjb21tYW5kIjoiYXJjaHN0ZWVyIiwiYXJncyI6WyJtY3AiXX0%3D)
+
+Or to any MCP-compatible client's config:
 
 ```json
 { "mcpServers": { "archsteer": { "command": "archsteer", "args": ["mcp"] } } }
 ```
+
+Also published to the [official MCP registry](https://registry.modelcontextprotocol.io) as
+`io.github.einvoice-dev1/archsteer` (runnable via `uvx archsteer mcp`).
 
 ## CI / pre-commit
 
 - GitHub Action: `.github/workflows/archsteer.yml` (maps, drafts ADRs, runs the net-new gate,
   uploads `report.html`).
 - Git hook: `cp hooks/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit`.
+
+## Conformance badge
+
+If your repo pushes snapshots to the situation room (`archsteer push`), its latest
+conformance score is a live badge — the one at the top of this README is this repo
+governing itself:
+
+```markdown
+[![ArchSteer conformance](https://img.shields.io/endpoint?url=https%3A%2F%2Fwww.archsteer.com%2Fapi%2Fbadge%2FYOUR-REPO)](https://www.archsteer.com)
+```
+
+Replace `YOUR-REPO` with the repo name `archsteer push` reports. Green at ≥90%, grey while
+you're still x-ray-only (no `architecture.yaml` declared yet).
 
 ## Try the demo
 

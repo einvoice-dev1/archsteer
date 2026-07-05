@@ -1,0 +1,43 @@
+version: 1
+target: "Keep the engine a pure, local, dependency-light library: the CLI is the only user-facing surface, and nothing under engine/ may know about the terminal, the network, or the MCP server."
+
+# ArchSteer governing itself. These are the real boundaries this codebase
+# lives by — the conformance badge in the README is computed from them.
+
+layers:
+  - cli
+  - engine
+
+rules:
+  - id: engine-imports-engine-only
+    type: forbidden_import
+    description: "engine/ is a pure library: it must never import the CLI, steering, docs, push, or MCP surfaces."
+    severity: error
+    scope: "archsteer/engine/*"
+    pattern: "^archsteer\\.(cli|steer|docs|mcp_server|report)"
+    steer: >-
+      Code under archsteer/engine/ must only import from archsteer.engine.* or
+      the standard library / pydantic. Never import the CLI, docs, steering, or
+      MCP modules from the engine — the engine is the dependency, not the client.
+
+  - id: engine-never-phones-home
+    type: forbidden_import
+    description: "The engine must stay provably offline: no HTTP client may ever enter engine/."
+    severity: error
+    scope: "archsteer/engine/*"
+    pattern: "^(requests|httpx|aiohttp|urllib3|socket)$"
+    steer: >-
+      The analysis engine runs on users' private source code and must remain
+      verifiably network-free. Do not import any HTTP/network client under
+      archsteer/engine/ — network I/O (push) lives in the CLI layer only.
+
+  - id: typer-stays-in-cli
+    type: forbidden_import
+    description: "The CLI framework must not leak into the engine: engine modules stay importable without typer."
+    severity: error
+    scope: "archsteer/engine/*"
+    pattern: "^typer"
+    steer: >-
+      Do not import typer (or any CLI concern) inside archsteer/engine/ — the
+      engine must be usable as a plain library (the MCP server and external
+      scripts import it directly).

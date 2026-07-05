@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "archsteer"
-version = "0.4.0"
+version = "0.4.1"
 description = "Living Architecture Control Plane for the AI-Dev Era"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -21,6 +21,11 @@ dependencies = [
     "ruamel.yaml>=0.18.0",
     "jinja2>=3.1.0",
     "rich>=13.7.0",
+    # mcp moved from an extra to a base dep in 0.4.1: MCP registries and
+    # runners (`uvx archsteer`) can't express extras, and `archsteer mcp`
+    # failing after a plain install was a broken first-run for exactly the
+    # AI-agent users the command exists for.
+    "mcp>=1.2.0",
 ]
 
 [project.optional-dependencies]
@@ -31,8 +36,9 @@ treesitter = [
     "tree-sitter>=0.21.0,<0.22.0",
     "tree-sitter-languages>=1.10.0",
 ]
-# `archsteer mcp` — a local MCP server for AI agents. Optional so the base
-# install stays dependency-light; only pulled in by people who use it.
+# Kept as a no-op alias for compatibility: docs published before 0.4.1 say
+# `pip install "archsteer[mcp]"` and that must keep working. The mcp
+# dependency itself is in the base install now (see dependencies above).
 mcp = [
     "mcp>=1.2.0",
 ]

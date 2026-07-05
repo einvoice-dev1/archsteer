@@ -160,3 +160,43 @@ def test_first_feed_is_baseline(tmp_path: Path):
     _legacy_repo(tmp_path)
     feed = compute_feed(None, build_model(tmp_path))
     assert feed.is_first and feed.changes == []
+
+
+def test_python_import_resolution(tmp_path: Path) -> None:
+    """Relative and same-package absolute Python imports resolve to internal edges."""
+    _write(tmp_path, "mypkg/__init__.py", "")
+    _write(tmp_path, "mypkg/routing.py", "from .utils import helper\nclass Router: pass\n")
+    _write(tmp_path, "mypkg/utils.py", "import json\ndef helper(): pass\n")
+    _write(tmp_path, "mypkg/sub/deep.py", "from ..routing import Router\nfrom mypkg import utils\n")
+    model = build_model(tmp_path)
+    edges = set(model.internal_edges())
+    assert ("mypkg/routing.py", "mypkg/utils.py") in edges          # relative .utils
+    assert ("mypkg/sub/deep.py", "mypkg/routing.py") in edges       # relative ..routing
+    assert ("mypkg/sub/deep.py", "mypkg/utils.py") in edges         # absolute mypkg.utils
+    # stdlib import stays external
+    utils = model.components["mypkg/utils.py"]
+    assert all(d.external for d in utils.dependencies if d.target == "json")
+
+
+def test_python_resolution_at_package_root(tmp_path: Path) -> None:
+    """X-raying the package dir itself resolves pkg-prefixed absolute imports."""
+    pkg = tmp_path / "mypkg"
+    _write(tmp_path, "mypkg/__init__.py", "")
+    _write(tmp_path, "mypkg/a.py", "from mypkg.b import thing\n")
+    _write(tmp_path, "mypkg/b.py", "def thing(): pass\n")
+    model = build_model(pkg)
+    assert ("a.py", "b.py") in set(model.internal_edges())
+
+
+def test_manifest_deps_runtime_only(tmp_path: Path) -> None:
+    """Manifest reader takes runtime deps only, not dev tooling or stray strings."""
+    _write(tmp_path, "package.json",
+           '{"dependencies":{"express":"^4"},"devDependencies":{"eslint":"^9"},"peerDependencies":{"react":"^19"}}')
+    _write(tmp_path, "pyproject.toml",
+           '[project]\nname = "x"\nlicense = "BSD-3-Clause"\n'
+           'dependencies = ["pydantic>=2.7.0", "rich>=13"]\n'
+           '[project.optional-dependencies]\ndev = ["pytest>=8"]\n'
+           '[tool.pytest.ini_options]\naddopts = "--strict-markers"\n')
+    deps = set(build_model(tmp_path).manifest_dependencies)
+    assert {"express", "react", "pydantic", "rich"} <= deps
+    assert not {"eslint", "pytest", "BSD-3-Clause", "--strict-markers"} & deps
