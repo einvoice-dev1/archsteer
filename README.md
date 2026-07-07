@@ -58,9 +58,9 @@ archsteer report    # self-contained .archsteer/report.html
 2. **Conservative, architect-in-the-loop ADRs.** Only external-boundary changes (new
    dependency, new datastore, new layer) draft an ADR — never internal reshuffles, never
    auto-committed.
-3. **Sharp agent steering.** Guardrails injected into `CLAUDE.md` / `AGENTS.md` are scoped to
-   the files in play and point at the governing ADR — they don't dump the whole model into the
-   context window.
+3. **Sharp agent steering.** Guardrails injected into `CLAUDE.md`, `AGENTS.md`, and
+   `.cursor/rules/archsteer.mdc` (an always-on Cursor rule) are scoped to the files in play and
+   point at the governing ADR — they don't dump the whole model into the context window.
 
 ## Declaring intent — `.archsteer/architecture.yaml`
 

@@ -20,7 +20,10 @@ from archsteer.engine.model import ArchitectureModel
 START_MARKER = "<!-- BEGIN ARCHSTEER GUARDRAILS (auto-generated; do not edit) -->"
 END_MARKER = "<!-- END ARCHSTEER GUARDRAILS -->"
 
-DEFAULT_TARGETS = ["CLAUDE.md", "AGENTS.md", ".cursor/rules"]
+DEFAULT_TARGETS = ["CLAUDE.md", "AGENTS.md", ".cursor/rules/archsteer.mdc"]
+# Files ArchSteer owns outright and will create on first run. AGENTS.md is a
+# shared multi-tool convention we only append to if the project already has one.
+_AUTO_CREATE = ("CLAUDE.md", ".cursor/rules/archsteer.mdc")
 
 
 def _rule_applies_to_files(rule: Rule, files: List[str], model: ArchitectureModel) -> bool:
@@ -83,8 +86,9 @@ class AgentSteeringEngine:
         written: List[Path] = []
         for target in (targets or DEFAULT_TARGETS):
             path = self.root / target
-            if not path.exists() and target not in ("CLAUDE.md",):
-                # Only auto-create the canonical CLAUDE.md; respect existing others.
+            if not path.exists() and target not in _AUTO_CREATE:
+                # Respect files/dirs the project doesn't already use, except
+                # for the files ArchSteer owns outright (see _AUTO_CREATE).
                 if not path.parent.exists():
                     continue
             written.append(self._inject(path, payload))
@@ -92,14 +96,23 @@ class AgentSteeringEngine:
 
     @staticmethod
     def _inject(path: Path, payload: str) -> Path:
+        # `.cursor/rules` is a directory by Cursor convention (may already
+        # exist as one in real repos) — never write to it directly. We only
+        # ever target a specific file inside it (see DEFAULT_TARGETS).
+        if path.is_dir():
+            raise ValueError(f"steer target must be a file, not a directory: {path}")
         content = path.read_text(encoding="utf-8") if path.exists() else ""
+        if path.suffix == ".mdc" and not content.lstrip().startswith("---"):
+            # Cursor rule frontmatter: alwaysApply=true keeps architecture
+            # guardrails in every agent session, matching CLAUDE.md/AGENTS.md.
+            content = f"---\nalwaysApply: true\n---\n\n{content}" if content else "---\nalwaysApply: true\n---\n"
         pattern = re.compile(
             re.escape(START_MARKER) + r".*?" + re.escape(END_MARKER), re.DOTALL
         )
         if pattern.search(content):
             updated = pattern.sub(payload, content)
         else:
-            updated = f"{content.rstrip()}\n\n{payload}\n" if content else payload + "\n"
+            updated = f"{content.rstrip()}\n\n{payload}\n" if content.strip() else f"{content}{payload}\n"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(updated.strip() + "\n", encoding="utf-8")
         return path

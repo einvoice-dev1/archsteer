@@ -118,6 +118,27 @@ def test_steer_is_idempotent(tmp_path: Path):
     assert target.read_text().count(START_MARKER) == 1
 
 
+def test_steer_writes_cursor_mdc_with_frontmatter(tmp_path: Path):
+    # Real repos already have .cursor/rules as a directory (Cursor's own
+    # convention) — writing must target a file inside it, not the dir itself.
+    (tmp_path / ".cursor" / "rules").mkdir(parents=True)
+    _legacy_repo(tmp_path)
+    model = build_model(tmp_path)
+    engine = AgentSteeringEngine(tmp_path)
+    payload = engine.synthesize(_intent(), model, files=["src/controllers/payment_controller.js"])
+    written = engine.write(payload)
+    mdc = tmp_path / ".cursor" / "rules" / "archsteer.mdc"
+    assert mdc in written
+    text = mdc.read_text()
+    assert text.startswith("---\nalwaysApply: true\n---")
+    assert START_MARKER in text
+    # Idempotent: re-running doesn't duplicate the marker or the frontmatter.
+    engine.write(engine.synthesize(_intent(), model, files=["src/controllers/payment_controller.js"]))
+    text2 = mdc.read_text()
+    assert text2.count(START_MARKER) == 1
+    assert text2.count("alwaysApply: true") == 1
+
+
 def test_docs_render_is_deterministic(tmp_path: Path):
     _legacy_repo(tmp_path)
     model = build_model(tmp_path)
