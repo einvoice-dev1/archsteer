@@ -39,6 +39,9 @@ _EXT_LANG = {
     ".mjs": "javascript",
     ".cjs": "javascript",
     ".py": "python",
+    ".java": "java",
+    ".cls": "apex",
+    ".trigger": "apex",
 }
 
 # JS/TS ----------------------------------------------------------------------
@@ -58,6 +61,91 @@ _PY_FROM = re.compile(
 )
 _PY_EXPORT = re.compile(r"""^(?:async\s+)?(?:def|class)\s+(?P<name>[A-Za-z0-9_]+)""", re.MULTILINE)
 _PY_HTTP = re.compile(r"""\b(?:requests|httpx|aiohttp|urllib)\b\.""")
+
+# Java -------------------------------------------------------------------------
+_JAVA_IMPORT = re.compile(
+    r"""^\s*import\s+(?:static\s+)?(?P<fqn>[a-zA-Z_][\w.]*?)(?:\.\*)?\s*;""", re.MULTILINE
+)
+_JAVA_TYPE = re.compile(
+    r"""^\s*(?:@\w+(?:\([^)]*\))?\s+)*public\s+(?:final\s+|abstract\s+)*(?:class|interface|enum|record)\s+(?P<name>\w+)""",
+    re.MULTILINE,
+)
+# Spring stereotype annotations are the most reliable layer signal in Java —
+# far better than directory names, which vary wildly across build layouts.
+_JAVA_LAYER_ANNOTATIONS = [
+    ("@RestController", "controller"),
+    ("@Controller", "controller"),
+    ("@Service", "service"),
+    ("@Repository", "repository"),
+    ("@Entity", "model"),
+]
+_JAVA_ORM = re.compile(
+    r"""(?:entityManager|em)\.(?:createQuery|createNativeQuery|persist|merge|remove|find)\s*\(|jdbcTemplate\.(?:query|queryForObject|queryForList|update|batchUpdate|execute)\s*\("""
+)
+# Spring Data repositories are interfaces with no stereotype annotation — the
+# superinterface is the layer signal.
+_JAVA_SPRING_DATA = re.compile(
+    r"""interface\s+\w+[\w\s,<>]*?extends\s+[\w\s,<>.]*?(?:JpaRepository|CrudRepository|PagingAndSortingRepository|ListCrudRepository|Repository)\s*<"""
+)
+# Name-suffix fallback (FooController, FooService, …) for classes with neither
+# a stereotype annotation nor a conventional directory.
+_JAVA_NAME_LAYERS = [
+    ("Controller", "controller"),
+    ("Service", "service"),
+    ("Repository", "repository"),
+    ("Dao", "repository"),
+    ("Entity", "model"),
+]
+_JAVA_HTTP = re.compile(
+    r"""\b(?:restTemplate|webClient|RestClient|HttpClient)\b\s*\.|\bWebClient\.(?:create|builder)\b"""
+)
+
+# Apex / Salesforce ------------------------------------------------------------
+# Apex has no import statements: every class shares one org-wide namespace.
+# The parser records candidate type references; the mapper resolves them
+# against the set of actual class files and DROPS the rest (unresolved refs
+# are System/builtin types, not meaningful external dependencies).
+_APEX_TYPEREF = re.compile(
+    r"""\bnew\s+(?P<new>[A-Z]\w+)\s*\(|\bextends\s+(?P<ext>[A-Z]\w+)|\bimplements\s+(?P<impl>[A-Z][\w.]*)|\b(?P<call>[A-Z]\w+)\.\w+\s*\("""
+)
+_APEX_BUILTINS = {
+    "System", "Database", "Test", "Schema", "Trigger", "String", "Integer", "Long",
+    "Decimal", "Double", "Boolean", "Date", "Datetime", "Time", "Id", "Blob",
+    "List", "Set", "Map", "SObject", "Math", "JSON", "Http", "HttpRequest",
+    "HttpResponse", "ApexPages", "PageReference", "Messaging", "UserInfo",
+    "Limits", "EncodingUtil", "Crypto", "Url", "Type", "Pattern", "Matcher",
+    "Exception", "AuraHandledException", "DmlException", "QueryException",
+    "Savepoint", "SObjectType", "SObjectField", "Label", "Site", "Network",
+    "Comparable", "Queueable", "Schedulable", "Batchable", "InstallHandler",
+}
+_APEX_TYPE = re.compile(
+    r"""^\s*(?:global|public|private)\s+(?:with\s+sharing\s+|without\s+sharing\s+|inherited\s+sharing\s+)?(?:virtual\s+|abstract\s+)?(?:class|interface|enum)\s+(?P<name>\w+)""",
+    re.MULTILINE,
+)
+_SOQL = re.compile(
+    r"""\[\s*SELECT\b.+?\bFROM\s+(?P<entity>\w+)""", re.IGNORECASE | re.DOTALL
+)
+_APEX_DML = re.compile(
+    r"""(?:^|\s)(?P<op>insert|update|upsert|delete|undelete)\s+(?:new\s+(?P<entity>[A-Z]\w+)\s*\(|\w+\s*;)|Database\.(?P<dbop>insert|update|upsert|delete|undelete)\s*\(""",
+    re.MULTILINE,
+)
+_APEX_CALLOUT = re.compile(r"""\bHttp\s*\(\s*\)|\bHttpRequest\s*\(""")
+# fflib / Salesforce naming conventions: the class-name suffix is the layer.
+_APEX_NAME_LAYERS = [
+    ("TriggerHandler", "handler"),
+    ("Handler", "handler"),
+    ("Controller", "controller"),
+    ("Service", "service"),
+    ("Selector", "repository"),
+    ("Repository", "repository"),
+    ("Domain", "model"),
+    ("Batch", "job"),
+    ("Queueable", "job"),
+    ("Schedulable", "job"),
+    ("Scheduler", "job"),
+    ("Test", "test"),
+    ("Mock", "test"),
+]
 
 # Data access (language-shared heuristics) -----------------------------------
 _SQL_LITERAL = re.compile(
@@ -114,6 +202,14 @@ class CodeParserFacade:
             self._extract_python(source, comp)
         elif ext in (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"):
             self._extract_javascript(source, comp)
+        elif ext == ".java":
+            self._extract_java(source, comp)
+        elif ext in (".cls", ".trigger"):
+            self._extract_apex(source, comp, rel)
+        if ext in (".cls", ".trigger"):
+            # Apex data access is SOQL/DML, handled in _extract_apex — the
+            # shared SQL-literal heuristics double-count SOQL as raw SQL.
+            return comp
         self._extract_data_access(source, comp, rel)
         return comp
 
@@ -192,6 +288,105 @@ class CodeParserFacade:
                 )
             )
 
+    # -- Java -------------------------------------------------------------------
+    def _extract_java(self, source: str, comp: ArchitectureComponent) -> None:
+        for m in _JAVA_IMPORT.finditer(source):
+            fqn = m.group("fqn")
+            comp.dependencies.append(
+                DependencyEdge(
+                    target=fqn,
+                    edge_type="import",
+                    loc=_line_of(source, m.start()),
+                    external=True,  # second pass resolves same-repo FQNs
+                )
+            )
+        for m in _JAVA_TYPE.finditer(source):
+            comp.exported_apis.append(m.group("name"))
+        for annotation, layer in _JAVA_LAYER_ANNOTATIONS:
+            if re.search(re.escape(annotation) + r"\b", source):
+                comp.layer = layer
+                break
+        if comp.layer is None and _JAVA_SPRING_DATA.search(source):
+            comp.layer = "repository"
+        if comp.layer is None:
+            stem = Path(comp.file_path).stem
+            for suffix, layer in _JAVA_NAME_LAYERS:
+                if stem.endswith(suffix):
+                    comp.layer = layer
+                    break
+        for m in _JAVA_ORM.finditer(source):
+            comp.data_access.append(
+                DataAccessPoint(
+                    entity="orm",
+                    operations={"RAW"},
+                    file_path=comp.file_path,
+                    loc=_line_of(source, m.start()),
+                )
+            )
+        for m in _JAVA_HTTP.finditer(source):
+            comp.external_calls.append(
+                ExternalCall(
+                    destination="HTTP_CLIENT_CALL",
+                    context=source[m.start():m.start() + 40].splitlines()[0].strip(),
+                    loc=_line_of(source, m.start()),
+                )
+            )
+
+    # -- Apex / Salesforce --------------------------------------------------------
+    def _extract_apex(self, source: str, comp: ArchitectureComponent, rel: str) -> None:
+        seen: set[str] = set()
+        for m in _APEX_TYPEREF.finditer(source):
+            name = m.group("new") or m.group("ext") or m.group("impl") or m.group("call")
+            name = name.split(".")[0]
+            if name in _APEX_BUILTINS or name in seen:
+                continue
+            seen.add(name)
+            comp.dependencies.append(
+                DependencyEdge(
+                    target=name,
+                    edge_type="typeref",
+                    loc=_line_of(source, m.start()),
+                    external=True,  # mapper resolves against real class files, drops the rest
+                )
+            )
+        for m in _APEX_TYPE.finditer(source):
+            comp.exported_apis.append(m.group("name"))
+        stem = Path(rel).stem
+        if rel.endswith(".trigger"):
+            comp.layer = "trigger"
+        else:
+            for suffix, layer in _APEX_NAME_LAYERS:
+                if stem.endswith(suffix):
+                    comp.layer = layer
+                    break
+        for m in _SOQL.finditer(source):
+            comp.data_access.append(
+                DataAccessPoint(
+                    entity=m.group("entity"),
+                    operations={"READ"},
+                    file_path=rel,
+                    loc=_line_of(source, m.start()),
+                )
+            )
+        for m in _APEX_DML.finditer(source):
+            op = (m.group("op") or m.group("dbop")).lower()
+            comp.data_access.append(
+                DataAccessPoint(
+                    entity=m.group("entity") or "sobject",
+                    operations={"DELETE" if "delete" in op else "WRITE"},
+                    file_path=rel,
+                    loc=_line_of(source, m.start()),
+                )
+            )
+        for m in _APEX_CALLOUT.finditer(source):
+            comp.external_calls.append(
+                ExternalCall(
+                    destination="HTTP_CALLOUT",
+                    context=source[m.start():m.start() + 40].splitlines()[0].strip(),
+                    loc=_line_of(source, m.start()),
+                )
+            )
+
     # -- data access (shared) -------------------------------------------------
     def _extract_data_access(self, source: str, comp: ArchitectureComponent, rel: str) -> None:
         for m in _PRISMA.finditer(source):
@@ -216,7 +411,15 @@ class CodeParserFacade:
                 )
             )
         for m in _SQL_LITERAL.finditer(source):
-            op = _SQL_OP_MAP.get(re.sub(r"\s+", " ", m.group("op").lower()), "RAW")
+            # Guard against prose ("// Update existing pet's properties"):
+            # real SQL sits inside a string literal (a quote appears earlier on
+            # the line) or is written in SQL-style ALL CAPS.
+            line_start = source.rfind("\n", 0, m.start()) + 1
+            prefix = source[line_start:m.start()]
+            keyword = m.group("op")
+            if not (any(q in prefix for q in "\"'`") or keyword == keyword.upper()):
+                continue
+            op = _SQL_OP_MAP.get(re.sub(r"\s+", " ", keyword.lower()), "RAW")
             entity = self._clean_entity(m.group("rest")) if m.group("rest") else "raw_sql"
             comp.data_access.append(
                 DataAccessPoint(

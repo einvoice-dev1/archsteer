@@ -26,7 +26,7 @@ IGNORE_DIRS = {
     ".git", ".archsteer", ".venv", "venv", "node_modules", "__pycache__",
     "dist", "build", ".next", ".turbo", "coverage", ".pytest_cache", ".mypy_cache",
 }
-SOURCE_EXTS = {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py"}
+SOURCE_EXTS = {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py", ".java", ".cls", ".trigger"}
 
 # Path-segment -> layer. First match wins. Architects refine this in intent.
 LAYER_HINTS = [
@@ -172,6 +172,39 @@ def _resolve_python(
     return sub_hits or [hit]
 
 
+def _java_class_index(components: dict) -> dict:
+    """Simple-class-name -> [component keys] for every .java file.
+
+    Java convention puts class ``com.foo.Bar`` at ``<source root>/com/foo/Bar.java``
+    with a variable prefix (``src/main/java/``, module dirs, …), so an import
+    resolves by matching the FQN-derived path suffix; indexing by class name
+    first keeps the suffix scan away from O(edges × components).
+    """
+    idx: dict = {}
+    for key, comp in components.items():
+        if comp.language == "java":
+            idx.setdefault(Path(key).stem, []).append(key)
+    return idx
+
+
+def _resolve_java(target: str, class_index: dict) -> Optional[str]:
+    simple = target.rsplit(".", 1)[-1]
+    suffix = "/" + target.replace(".", "/") + ".java"
+    for key in class_index.get(simple, []):
+        if key.endswith(suffix) or key == suffix[1:]:
+            return key
+    return None
+
+
+def _apex_name_index(components: dict) -> dict:
+    """Apex classes share one org-wide namespace: file stem == class name."""
+    return {
+        Path(key).stem: key
+        for key, comp in components.items()
+        if comp.language == "apex" and key.endswith(".cls")
+    }
+
+
 def build_model(root_dir: str | Path) -> ArchitectureModel:
     root = Path(root_dir).resolve()
     parser = CodeParserFacade()
@@ -187,19 +220,47 @@ def build_model(root_dir: str | Path) -> ArchitectureModel:
         if any(part in IGNORE_DIRS for part in path.relative_to(root).parts):
             continue
         comp = parser.parse_file(path, root)
-        comp.layer = _infer_layer(comp.file_path)
+        # The parser may have already set a layer from in-source signals
+        # (Spring stereotype annotations, Apex naming conventions) — those
+        # beat path heuristics, which vary wildly across build layouts.
+        comp.layer = comp.layer or _infer_layer(comp.file_path)
         model.components[comp.file_path] = comp
 
     # Second pass: resolve internal edges now that all components are known.
     # Python deps are probed even when the parser flagged them external:
     # `from mypkg import mod` is textually indistinguishable from a third-party
     # import, so resolution against the actual component set is the arbiter.
+    # Java FQN imports and Apex type references likewise resolve against the
+    # actual component set.
+    java_index = _java_class_index(model.components)
+    apex_index = _apex_name_index(model.components)
     for rel, comp in model.components.items():
         extra: List[DependencyEdge] = []
+        keep: List[DependencyEdge] = []
         for dep in comp.dependencies:
             if comp.language == "python":
                 hits = _resolve_python(rel, dep.target, dep.symbols, model.components, root.name)
+            elif comp.language == "java":
+                one = _resolve_java(dep.target, java_index)
+                hits = [one] if one else []
+                if not hits:
+                    head = dep.target.split(".", 1)[0]
+                    if head in ("java", "javax", "jakarta"):
+                        continue  # JDK/EE stdlib: not a third-party dependency
+                    # Collapse third-party FQNs to their group (org.springframework,
+                    # com.fasterxml, …) so the external-dependency list stays readable.
+                    dep.target = ".".join(dep.target.split(".")[:2])
+            elif comp.language == "apex":
+                one = apex_index.get(dep.target)
+                if one is None or one == rel:
+                    # Unresolved Apex type refs are System/builtin types, not
+                    # third-party packages — dropping them keeps the external-
+                    # dependency count meaningful. Self-references (a class
+                    # calling its own statics by name) aren't edges either.
+                    continue
+                hits = [one]
             elif dep.external:
+                keep.append(dep)
                 continue
             else:
                 one = _resolve_internal(rel, dep.target, model.components)
@@ -213,5 +274,6 @@ def build_model(root_dir: str | Path) -> ArchitectureModel:
                 ]
             # else: keep as-is (unresolved relative imports stay internal,
             # unresolved absolute imports stay external)
-        comp.dependencies.extend(extra)
+            keep.append(dep)
+        comp.dependencies = keep + extra
     return model

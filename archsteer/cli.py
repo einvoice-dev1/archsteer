@@ -43,7 +43,32 @@ from archsteer.workspace import Workspace
 
 app = typer.Typer(add_completion=False, help="ArchSteer — Living Architecture Control Plane.")
 console = Console()
-PACK_DIR = Path(__file__).parent / "packs" / "express_to_next"
+PACKS_DIR = Path(__file__).parent / "packs"
+PACK_DIR = PACKS_DIR / "express_to_next"  # kept for backward compat
+
+# Starter packs: pack name -> (one-line label shown at init).
+PACKS = {
+    "java-spring": "Layered Spring (controller → service → repository → model)",
+    "salesforce": "Salesforce enterprise patterns (logic-less triggers, SOQL in selectors)",
+    "python-service": "Layered Python service (api → service → repository)",
+    "express-to-next": "Express → Next.js migration + repository pattern",
+}
+
+
+def _detect_pack(root: Path) -> str:
+    """Pick a starter pack from the repo's build manifests. Order matters:
+    Salesforce first (an sfdx repo may also carry a package.json for tooling)."""
+    if (root / "sfdx-project.json").exists() or (root / "force-app").is_dir():
+        return "salesforce"
+    if any((root / f).exists() for f in ("pom.xml", "build.gradle", "build.gradle.kts")):
+        return "java-spring"
+    if any((root / f).exists() for f in ("pyproject.toml", "setup.py", "requirements.txt")):
+        return "python-service"
+    return "express-to-next"
+
+
+def _pack_dir(name: str) -> Path:
+    return PACKS_DIR / name.replace("-", "_")
 
 
 def _ws(path: Optional[str]) -> Workspace:
@@ -90,20 +115,34 @@ def version() -> None:
 
 
 @app.command()
-def init(path: Optional[str] = typer.Option(None, help="Repo root (default: cwd).")) -> None:
-    """Scaffold .archsteer/ and seed the starter intent + ADRs."""
+def init(
+    path: Optional[str] = typer.Option(None, help="Repo root (default: cwd)."),
+    pack: Optional[str] = typer.Option(
+        None, help=f"Starter pack: {', '.join(PACKS)}. Auto-detected from the repo when omitted."
+    ),
+) -> None:
+    """Scaffold .archsteer/ and seed a starter intent + ADRs matched to your stack."""
     ws = _ws(path)
     if ws.initialized:
         console.print(f"[yellow]Already initialized at {ws.dir}[/yellow]")
         raise typer.Exit(0)
+    if pack is not None and pack not in PACKS:
+        console.print(f"[red]Unknown pack '{pack}'.[/red] Available: {', '.join(PACKS)}")
+        raise typer.Exit(1)
+    chosen = pack or _detect_pack(ws.root)
+    pack_dir = _pack_dir(chosen)
     ws.dir.mkdir(parents=True, exist_ok=True)
     ws.adr_dir.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(PACK_DIR / "architecture.yaml", ws.intent)
-    for adr in (PACK_DIR / "adr").glob("*.md"):
+    shutil.copyfile(pack_dir / "architecture.yaml", ws.intent)
+    for adr in (pack_dir / "adr").glob("*.md"):
         shutil.copyfile(adr, ws.adr_dir / adr.name)
     console.print(f"[green]✓[/green] Initialized [bold]{ws.dir}[/bold]")
-    console.print("  • seeded [cyan]architecture.yaml[/cyan] (Express → Next.js + repository)")
+    detected = " (auto-detected)" if pack is None else ""
+    console.print(f"  • starter pack: [cyan]{chosen}[/cyan]{detected} — {PACKS[chosen]}")
+    console.print("  • seeded [cyan]architecture.yaml[/cyan] — baseline rules, edit to match your conventions")
     console.print("  • seeded baseline ADRs in [cyan].archsteer/adr/[/cyan]")
+    if pack is None:
+        console.print(f"  [dim]Wrong guess? Re-run with --pack <name> ({', '.join(PACKS)})[/dim]")
     console.print("\nNext: [bold]archsteer map[/bold] then [bold]archsteer report[/bold]")
 
 

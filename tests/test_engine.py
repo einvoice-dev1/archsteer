@@ -57,6 +57,95 @@ def test_model_build_and_layers(tmp_path: Path):
     assert ("src/services/user_service.js", "src/repositories/user_repository.js") in model.internal_edges()
 
 
+def _java_repo(root: Path) -> None:
+    _write(root, "pom.xml", "<project/>")
+    _write(
+        root, "src/main/java/com/acme/web/OrderController.java",
+        "package com.acme.web;\n"
+        "import com.acme.core.OrderService;\n"
+        "import org.springframework.web.bind.annotation.RestController;\n"
+        "import java.util.List;\n"
+        "@RestController\npublic class OrderController { private final OrderService s; }\n",
+    )
+    _write(
+        root, "src/main/java/com/acme/core/OrderService.java",
+        "package com.acme.core;\n"
+        "import org.springframework.stereotype.Service;\n"
+        "@Service\npublic class OrderService {\n"
+        "  public int c() { return jdbcTemplate.queryForObject(\"SELECT count(*) FROM orders\", Integer.class); }\n"
+        "}\n",
+    )
+
+
+def _sf_repo(root: Path) -> None:
+    _write(root, "sfdx-project.json", "{}")
+    _write(
+        root, "force-app/main/default/classes/AccountService.cls",
+        "public with sharing class AccountService {\n"
+        "  public static void run() { List<Account> a = AccountSelector.selectAll(); update a; }\n"
+        "}\n",
+    )
+    _write(
+        root, "force-app/main/default/classes/AccountSelector.cls",
+        "public with sharing class AccountSelector {\n"
+        "  public static List<Account> selectAll() { return [SELECT Id FROM Account]; }\n"
+        "}\n",
+    )
+    _write(
+        root, "force-app/main/default/triggers/AccountTrigger.trigger",
+        "trigger AccountTrigger on Account (before insert) { AccountService.run(); }\n",
+    )
+
+
+def test_java_layers_edges_and_external_grouping(tmp_path: Path):
+    _java_repo(tmp_path)
+    model = build_model(tmp_path)
+    ctrl = model.components["src/main/java/com/acme/web/OrderController.java"]
+    svc = model.components["src/main/java/com/acme/core/OrderService.java"]
+    # Layer comes from the Spring stereotype annotation, not the path.
+    assert ctrl.layer == "controller" and svc.layer == "service"
+    # FQN import resolves to the actual file across differing package dirs.
+    assert ("src/main/java/com/acme/web/OrderController.java",
+            "src/main/java/com/acme/core/OrderService.java") in model.internal_edges()
+    ext = {d.target for c in model.components.values() for d in c.dependencies if d.external}
+    # Third-party FQNs collapse to their group; JDK stdlib is dropped entirely.
+    assert "org.springframework" in ext
+    assert not any(e.startswith("java.") for e in ext)
+    # JdbcTemplate call registers as raw data access.
+    assert any("RAW" in d.operations for d in svc.data_access)
+
+
+def test_apex_typerefs_soql_dml_and_layers(tmp_path: Path):
+    _sf_repo(tmp_path)
+    model = build_model(tmp_path)
+    svc = model.components["force-app/main/default/classes/AccountService.cls"]
+    sel = model.components["force-app/main/default/classes/AccountSelector.cls"]
+    trg = model.components["force-app/main/default/triggers/AccountTrigger.trigger"]
+    # Layers from naming conventions; triggers get their own layer.
+    assert svc.layer == "service" and sel.layer == "repository" and trg.layer == "trigger"
+    # Type references resolve to internal edges (Apex has no imports).
+    edges = model.internal_edges()
+    assert ("force-app/main/default/classes/AccountService.cls",
+            "force-app/main/default/classes/AccountSelector.cls") in edges
+    assert ("force-app/main/default/triggers/AccountTrigger.trigger",
+            "force-app/main/default/classes/AccountService.cls") in edges
+    # Unresolved builtins (List, Account ctor refs…) are dropped, not "external deps".
+    assert not any(d.external for c in model.components.values() for d in c.dependencies)
+    # SOQL is READ data access on the entity; DML registers as WRITE.
+    assert any(d.entity == "Account" and "READ" in d.operations for d in sel.data_access)
+    assert any("WRITE" in d.operations for d in svc.data_access)
+
+
+def test_init_pack_autodetect(tmp_path: Path):
+    from archsteer.cli import _detect_pack
+    _write(tmp_path, "pom.xml", "<project/>")
+    assert _detect_pack(tmp_path) == "java-spring"
+    # Salesforce markers outrank others even when package.json coexists.
+    _write(tmp_path, "package.json", "{}")
+    _write(tmp_path, "sfdx-project.json", "{}")
+    assert _detect_pack(tmp_path) == "salesforce"
+
+
 def test_conformance_flags_raw_sql_outside_repository(tmp_path: Path):
     _legacy_repo(tmp_path)
     report = evaluate(build_model(tmp_path), _intent())

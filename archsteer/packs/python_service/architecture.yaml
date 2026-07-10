@@ -1,0 +1,35 @@
+version: 1
+target: "Layered Python service: thin API handlers, persistence behind repositories"
+
+# Baseline layers for a Python web service (FastAPI/Flask/Django-style).
+# ArchSteer infers layers from directory names (api/, routes/, services/,
+# repositories/, models/) — adjust to your project's conventions.
+layers:
+  - api
+  - route
+  - service
+  - repository
+  - model
+
+rules:
+  - id: persistence-only-in-repository
+    type: required_layer_for_data_access
+    description: "Raw SQL / ORM sessions may only live in the repository layer."
+    severity: error
+    allowed_layers: [repository, model]
+    operations: [RAW]
+    adr: .archsteer/adr/0001-repository-pattern.md
+    steer: >-
+      Do NOT run queries (cursor.execute, session.query, raw SQL) from API
+      handlers or services. Add a function in the repositories package instead.
+
+  - id: api-must-not-touch-repository
+    type: forbidden_layer_edge
+    description: "API handlers call services; they never reach past them into repositories."
+    severity: warn
+    from_layer: api
+    to_layer: repository
+    adr: .archsteer/adr/0001-repository-pattern.md
+    steer: >-
+      API/route handlers must only depend on the service layer. If a handler
+      needs data, add a service function that delegates to the repository.

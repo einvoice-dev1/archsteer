@@ -5,7 +5,7 @@
 ## Overview
 - **Components:** 22
 - **Layers:** controller, repository, route, service
-- **Data stores:** 1, payments, raw_sql
+- **Data stores:** 1, Id, a, count, existing, payments, raw_sql
 - **External call sites:** 6
 
 ## Layer map
@@ -29,7 +29,7 @@ graph LR
 | Component | Layer | Exports | Data access | External |
 |---|---|---|---|---|
 | `archsteer/__init__.py` | — | — | — | — |
-| `archsteer/cli.py` | — | _ws, _require_init, _load_model, _conformance | — | 6 |
+| `archsteer/cli.py` | — | _detect_pack, _pack_dir, _ws, _require_init | — | 6 |
 | `archsteer/docs.py` | — | _layer_edges, _mermaid, render_architecture_md | — | — |
 | `archsteer/engine/__init__.py` | — | — | — | — |
 | `archsteer/engine/baseline.py` | — | Baseline | — | — |
@@ -39,7 +39,7 @@ graph LR
 | `archsteer/engine/intent.py` | — | Rule, Intent | — | — |
 | `archsteer/engine/mapper.py` | — | _infer_layer, _git_sha, _read_manifest_deps, _resolve_internal | — | — |
 | `archsteer/engine/model.py` | — | _utcnow, DependencyEdge, DataAccessPoint, ExternalCall | — | — |
-| `archsteer/engine/parser.py` | — | _line_of, CodeParserFacade | — | — |
+| `archsteer/engine/parser.py` | — | _line_of, CodeParserFacade | existing | — |
 | `archsteer/mcp_server.py` | — | _workspace, _normalize, _load, _report | — | — |
 | `archsteer/report.py` | — | _sparkline, _mermaid_html, render_report_html | — | — |
 | `archsteer/steer.py` | — | _rule_applies_to_files, AgentSteeringEngine | — | — |
@@ -49,4 +49,4 @@ graph LR
 | `examples/demo-repo/src/repositories/user_repository.js` | repository | default | raw_sql | — |
 | `examples/demo-repo/src/routes/users.js` | route | default | raw_sql | — |
 | `examples/demo-repo/src/services/user_service.js` | service | default | — | — |
-| `tests/test_engine.py` | — | _write, _legacy_repo, _intent, test_model_build_and_layers | 1, payments, raw_sql | — |
+| `tests/test_engine.py` | — | _write, _legacy_repo, _intent, test_model_build_and_layers | 1, Id, a, count, payments, raw_sql | — |

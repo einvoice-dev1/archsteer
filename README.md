@@ -37,10 +37,15 @@ pip install "archsteer[treesitter]"   # optional native acceleration
 (Since 0.4.1 the MCP server ships in the base install; `pip install "archsteer[mcp]"` still
 works as a no-op alias.)
 
+**Languages:** JavaScript / TypeScript, Python, **Java** (Spring-aware), and
+**Salesforce Apex** (SOQL/DML + trigger/handler/selector conventions). Layer
+detection uses in-source signals first — Spring stereotype annotations, Apex
+class-name conventions — then directory names.
+
 ## Quickstart
 
 ```bash
-archsteer init      # scaffold .archsteer/ + seed intent (Express → Next.js + repository)
+archsteer init      # scaffold .archsteer/ + a starter rule pack auto-matched to your stack
 archsteer map       # build model.json from source
 archsteer docs      # regenerate .archsteer/architecture.md (deterministic, Mermaid)
 archsteer govern    # conformance + drift score by rule
@@ -49,6 +54,20 @@ archsteer baseline  # accept current debt — the ratchet
 archsteer steer -f src/controllers/payment.js -t "add refund endpoint"
 archsteer check     # CI/pre-commit: fail on NET-NEW violations only
 archsteer report    # self-contained .archsteer/report.html
+```
+
+`init` auto-detects your stack and seeds a matching baseline rule pack — edit
+`.archsteer/architecture.yaml` to fit your conventions, or pick one explicitly:
+
+| Pack | Detected by | Baseline rules |
+|---|---|---|
+| `java-spring` | pom.xml / build.gradle | persistence only in repositories; controllers never touch repositories |
+| `salesforce` | sfdx-project.json / force-app | SOQL only in selectors; logic-less triggers; no DML in controllers |
+| `python-service` | pyproject.toml / requirements.txt | persistence behind repositories; thin API handlers |
+| `express-to-next` | package.json | repository pattern; Express → Next.js migration |
+
+```bash
+archsteer init --pack salesforce   # override the auto-detection
 ```
 
 ## The three design guarantees

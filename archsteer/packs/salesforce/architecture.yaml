@@ -1,0 +1,48 @@
+version: 1
+target: "Salesforce enterprise patterns: logic-less triggers, SOQL only in selectors"
+
+# Baseline layers for a Salesforce org, following the fflib / Apex Enterprise
+# Patterns conventions. ArchSteer infers each class's layer from its name suffix
+# (FooController, FooService, FooSelector, FooTriggerHandler…) — rename classes
+# or adjust these layers to match your org's conventions.
+layers:
+  - trigger
+  - handler
+  - controller
+  - service
+  - repository   # Selector classes (fflib "selector layer")
+  - model        # Domain classes
+
+rules:
+  - id: soql-only-in-selectors
+    type: required_layer_for_data_access
+    description: "SOQL queries may only live in Selector classes."
+    severity: error
+    allowed_layers: [repository]
+    operations: [READ]
+    adr: .archsteer/adr/0001-selector-layer.md
+    steer: >-
+      Do NOT write SOQL ([SELECT ... FROM X]) in triggers, controllers, or
+      services. Add a method to the object's *Selector class and call that.
+
+  - id: no-dml-in-triggers
+    type: forbidden_data_access
+    description: "Triggers delegate to a handler; they never run DML or SOQL themselves."
+    severity: error
+    scope_layer: trigger
+    operations: [READ, WRITE, DELETE, RAW]
+    adr: .archsteer/adr/0002-one-trigger-per-object.md
+    steer: >-
+      Trigger bodies must contain no logic: one line delegating to a
+      *TriggerHandler class. Never query or modify records inside the trigger.
+
+  - id: no-dml-in-controllers
+    type: forbidden_data_access
+    description: "Controllers orchestrate; DML belongs in the service layer."
+    severity: warn
+    scope_layer: controller
+    operations: [WRITE, DELETE]
+    adr: .archsteer/adr/0001-selector-layer.md
+    steer: >-
+      Aura/LWC controllers must not run insert/update/delete directly — call a
+      *Service class method that owns the transaction.
