@@ -32,7 +32,7 @@ from archsteer import __version__
 from archsteer.docs import render_architecture_md
 from archsteer.engine.baseline import Baseline
 from archsteer.engine.conformance import ConformanceReport, evaluate
-from archsteer.engine.decisions import DecisionEngine
+from archsteer.engine.decisions import DecisionEngine, DraftADR
 from archsteer.engine.evolution import History, compute_feed
 from archsteer.engine.intent import Intent
 from archsteer.engine.mapper import build_model
@@ -95,6 +95,17 @@ def _conformance(ws: Workspace, model: ArchitectureModel) -> ConformanceReport:
     if intent is None:
         return ConformanceReport()
     return evaluate(model, intent)
+
+
+def _all_drafts(
+    ws: Workspace, model: ArchitectureModel, report: ConformanceReport
+) -> List[DraftADR]:
+    """Every draft ADR source: structural change since the last snapshot, plus
+    any rule violated across several components in the current one."""
+    prev = ArchitectureModel.load_if_exists(ws.model_prev)
+    intent = Intent.load_if_exists(ws.intent)
+    engine = DecisionEngine(ws.adr_dir)
+    return engine.analyze_diff(prev, model) + engine.analyze_violation_patterns(report, intent)
 
 
 def _record_snapshot(ws: Workspace, model: ArchitectureModel) -> None:
@@ -175,14 +186,13 @@ def docs(path: Optional[str] = typer.Option(None)) -> None:
 
 @app.command()
 def adr(path: Optional[str] = typer.Option(None)) -> None:
-    """Detect structural decisions since the last map and draft ADRs."""
+    """Detect structural decisions + widespread rule violations and draft ADRs."""
     ws = _ws(path)
     _require_init(ws)
     model = _load_model(ws)
-    prev = ArchitectureModel.load_if_exists(ws.model_prev)
-    engine = DecisionEngine(ws.adr_dir)
-    drafts = engine.analyze_diff(prev, model)
-    written = engine.write_drafts(drafts)
+    report = _conformance(ws, model)
+    drafts = _all_drafts(ws, model, report)
+    written = DecisionEngine(ws.adr_dir).write_drafts(drafts)
     if not written:
         console.print("[green]✓[/green] No new architectural decisions to record.")
         return
@@ -301,8 +311,7 @@ def mcp_cmd(
 def _render_report(ws: Workspace, model: ArchitectureModel) -> None:
     conf = _conformance(ws, model)
     governed = ws.intent.exists()
-    prev = ArchitectureModel.load_if_exists(ws.model_prev)
-    pending = [d.title for d in DecisionEngine(ws.adr_dir).analyze_diff(prev, model)]
+    pending = [d.title for d in _all_drafts(ws, model, conf)]
     bl = Baseline.load_if_exists(ws.baseline)
     fixed = bl.fixed(conf) if bl else 0
     hist = History(ws.history_dir)
@@ -343,12 +352,9 @@ def xray(path: Optional[str] = typer.Option(None, help="Repo root (default: cwd)
     model.save(ws.model)
     _record_snapshot(ws, model)
     ws.architecture_md.write_text(render_architecture_md(model), encoding="utf-8")
-    # Draft ADRs for any structural change since last snapshot (architect-in-the-loop).
-    DecisionEngine(ws.adr_dir).write_drafts(
-        DecisionEngine(ws.adr_dir).analyze_diff(
-            ArchitectureModel.load_if_exists(ws.model_prev), model
-        )
-    )
+    # Draft ADRs for structural change since last snapshot, and for any rule
+    # violated across several components right now (architect-in-the-loop).
+    DecisionEngine(ws.adr_dir).write_drafts(_all_drafts(ws, model, _conformance(ws, model)))
     _render_report(ws, model)
     old_meta, new_meta = History(ws.history_dir).latest_two()
     feed = compute_feed(
@@ -408,8 +414,7 @@ def push(
     model = _load_model(ws)
     conf = _conformance(ws, model)
     governed = ws.intent.exists()
-    prev = ArchitectureModel.load_if_exists(ws.model_prev)
-    pending = len(DecisionEngine(ws.adr_dir).analyze_diff(prev, model))
+    pending = len(_all_drafts(ws, model, conf))
     hist = History(ws.history_dir)
     old_meta, new_meta = hist.latest_two()
     feed = compute_feed(hist.load_model(old_meta) if old_meta else None, model, old_meta, new_meta)

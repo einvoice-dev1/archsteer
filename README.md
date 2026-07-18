@@ -49,7 +49,7 @@ archsteer init      # scaffold .archsteer/ + a starter rule pack auto-matched to
 archsteer map       # build model.json from source
 archsteer docs      # regenerate .archsteer/architecture.md (deterministic, Mermaid)
 archsteer govern    # conformance + drift score by rule
-archsteer adr       # draft ADRs for new structural decisions (architect-in-the-loop)
+archsteer adr       # draft ADRs: new structural decisions + widespread rule violations
 archsteer baseline  # accept current debt — the ratchet
 archsteer steer -f src/controllers/payment.js -t "add refund endpoint"
 archsteer check     # CI/pre-commit: fail on NET-NEW violations only
@@ -74,9 +74,11 @@ archsteer init --pack salesforce   # override the auto-detection
 
 1. **Ratchet, not freeze.** `archsteer check` blocks only *net-new* violations against a
    baseline — teams keep shipping features while debt can only shrink.
-2. **Conservative, architect-in-the-loop ADRs.** Only external-boundary changes (new
-   dependency, new datastore, new layer) draft an ADR — never internal reshuffles, never
-   auto-committed.
+2. **Conservative, architect-in-the-loop ADRs.** Two narrow sources, both opt-in review —
+   never auto-committed. Across time: external-boundary changes (new dependency, new
+   datastore, new layer) — never internal reshuffles. Within a snapshot: a rule violated
+   in 3+ components — a genuine pattern worth ratifying or relaxing, not a one-off left to
+   `check`/`govern`. Drafts are idempotent; re-running never duplicates one already on disk.
 3. **Sharp agent steering.** Guardrails injected into `CLAUDE.md`, `AGENTS.md`, and
    `.cursor/rules/archsteer.mdc` (an always-on Cursor rule) are scoped to the files in play and
    point at the governing ADR — they don't dump the whole model into the context window.

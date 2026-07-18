@@ -196,6 +196,78 @@ def test_decision_detection_is_boundary_only_and_idempotent(tmp_path: Path):
     assert engine.write_drafts(engine.analyze_diff(old, new)) == []
 
 
+def _multi_violation_repo(root: Path) -> None:
+    _write(root, "package.json", '{"dependencies":{"express":"^4","pg":"^8"}}')
+    _write(root, "src/db/client.js", "const {Pool}=require('pg');module.exports={pool:new Pool()};")
+    for name in ("payment", "invoice", "refund"):
+        _write(
+            root, f"src/controllers/{name}_controller.js",
+            "const {pool}=require('../db/client');\n"
+            f"async function run(){{return pool.query('SELECT * FROM {name}s');}}\n"
+            "module.exports={run};",
+        )
+
+
+def test_violation_pattern_drafted_when_widespread_and_idempotent(tmp_path: Path):
+    _multi_violation_repo(tmp_path)
+    intent = _intent()  # express_to_next: every shipped rule already has an ADR
+    report = evaluate(build_model(tmp_path), intent)
+    engine = DecisionEngine(tmp_path / "adr")
+    drafts = engine.analyze_violation_patterns(report, intent)
+    # Both no-raw-sql-outside-repository AND controller-no-direct-db-client trip
+    # here (every controller imports src/db/client.js directly) — each is its
+    # own decision, so both get drafted.
+    by_rule = {d.title: d for d in drafts}
+    draft = by_rule["Review rule 'no-raw-sql-outside-repository': widespread violations found"]
+    assert "controller-no-direct-db-client" in " ".join(by_rule)
+    assert "already documented in" in draft.context
+    assert "payment_controller.js" in draft.context
+    written = engine.write_drafts(drafts)
+    assert written
+
+    # Re-running with a different violation count must NOT duplicate the file —
+    # the slug is derived from the rule id, not the count.
+    _write(
+        tmp_path, "src/controllers/extra_controller.js",
+        "const {pool}=require('../db/client');\n"
+        "async function run(){return pool.query('SELECT * FROM extras');}\n"
+        "module.exports={run};",
+    )
+    report2 = evaluate(build_model(tmp_path), intent)
+    drafts2 = engine.analyze_violation_patterns(report2, intent)
+    draft2 = {d.title: d for d in drafts2}["Review rule 'no-raw-sql-outside-repository': widespread violations found"]
+    assert draft2.context != draft.context  # count really did change ("extra" now included)
+    assert engine.write_drafts(drafts2) == []  # but nothing new gets written to disk
+
+
+def test_violation_pattern_below_threshold_is_silent(tmp_path: Path):
+    _legacy_repo(tmp_path)  # only one file violates no-raw-sql-outside-repository
+    report = evaluate(build_model(tmp_path), _intent())
+    drafts = DecisionEngine(tmp_path / "adr").analyze_violation_patterns(report, _intent())
+    assert drafts == []
+
+
+def test_violation_pattern_without_backing_adr(tmp_path: Path):
+    _multi_violation_repo(tmp_path)
+    intent = _intent()
+    for rule in intent.rules:
+        rule.adr = None  # simulate a hand-written rule nobody has ratified yet
+    report = evaluate(build_model(tmp_path), intent)
+    drafts = DecisionEngine(tmp_path / "adr").analyze_violation_patterns(report, intent)
+    assert drafts  # every rule.adr is None -> the "no backing ADR" branch for all of them
+    for draft in drafts:
+        assert "no backing ADR" in draft.context
+        assert "already documented" not in draft.context
+
+
+def test_violation_pattern_needs_intent_and_ignores_ungoverned_xray(tmp_path: Path):
+    from archsteer.engine.conformance import ConformanceReport
+    _multi_violation_repo(tmp_path)
+    build_model(tmp_path)
+    # X-ray mode: no declared intent -> empty report -> nothing to review.
+    assert DecisionEngine(tmp_path / "adr").analyze_violation_patterns(ConformanceReport(), None) == []
+
+
 def test_steer_is_idempotent(tmp_path: Path):
     _legacy_repo(tmp_path)
     model = build_model(tmp_path)
