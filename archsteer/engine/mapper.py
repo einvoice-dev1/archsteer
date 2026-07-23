@@ -16,6 +16,7 @@ from typing import List, Optional
 
 from archsteer.engine.model import ArchitectureModel, DependencyEdge
 from archsteer.engine.parser import CodeParserFacade
+from archsteer.engine.security import scan_source
 
 try:  # stdlib on 3.11+; on 3.10 we fall back to a scoped regex
     import tomllib
@@ -224,6 +225,11 @@ def build_model(root_dir: str | Path) -> ArchitectureModel:
         # (Spring stereotype annotations, Apex naming conventions) — those
         # beat path heuristics, which vary wildly across build layouts.
         comp.layer = comp.layer or _infer_layer(comp.file_path)
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            text = ""
+        comp.security_findings = scan_source(comp.file_path, text)
         model.components[comp.file_path] = comp
 
     # Second pass: resolve internal edges now that all components are known.

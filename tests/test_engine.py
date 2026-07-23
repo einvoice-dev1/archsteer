@@ -10,6 +10,7 @@ from archsteer.engine.conformance import evaluate
 from archsteer.engine.decisions import DecisionEngine
 from archsteer.engine.intent import Intent
 from archsteer.engine.mapper import build_model
+from archsteer.engine.security import scan_source
 from archsteer.steer import START_MARKER, AgentSteeringEngine
 
 PACK = Path(__file__).resolve().parent.parent / "archsteer" / "packs" / "express_to_next"
@@ -155,6 +156,50 @@ def test_conformance_flags_raw_sql_outside_repository(tmp_path: Path):
     # repository raw SQL is allowed -> not flagged
     assert "src/repositories/user_repository.js" not in files
     assert 0 < report.conformance_score < 100
+
+
+def test_security_scan_detects_secrets_and_ignores_env_and_placeholders():
+    positive = "\n".join([
+        'const password = "Sup3rSecretPass!";',
+        'AWS_KEY = "AKIAABCDEFGHIJKLMNOP"',
+        'let token = "abcd1234efgh5678";',
+    ])
+    findings = scan_source("app.js", positive)
+    assert len(findings) == 3
+    assert all(f.kind == "hardcoded-secret" for f in findings)
+
+    negative = "\n".join([
+        "# api_key = \"changeme\"",  # comment line: skipped entirely
+        'secret: "${SECRET_KEY}"',  # env-style interpolation, not a literal
+        'const password = "changeme";',  # placeholder
+        'const token = "short";',  # below length floor
+    ])
+    assert scan_source("app.py", negative) == []
+
+
+def test_conformance_flags_hardcoded_secret_and_misplaced_external_call(tmp_path: Path):
+    _write(tmp_path, "package.json", '{"dependencies":{"express":"^4"}}')
+    _write(
+        tmp_path, "src/controllers/payment_controller.js",
+        'const password = "Sup3rSecretPass!";\n'
+        "async function charge(){return fetch('https://api.example.com/charge');}\n"
+        "module.exports={charge};",
+    )
+    _write(
+        tmp_path, "src/services/notify_service.js",
+        "async function notify(){return fetch('https://api.example.com/notify');}\n"
+        "module.exports={notify};",
+    )
+    report = evaluate(build_model(tmp_path), _intent())
+
+    secrets = next(r for r in report.results if r.rule_id == "no-hardcoded-secrets")
+    assert {v.file for v in secrets.violations} == {"src/controllers/payment_controller.js"}
+
+    calls = next(r for r in report.results if r.rule_id == "external-calls-only-in-service")
+    files = {v.file for v in calls.violations}
+    assert "src/controllers/payment_controller.js" in files
+    # the service-layer call is allowed -> not flagged
+    assert "src/services/notify_service.js" not in files
 
 
 def test_ratchet_blocks_only_net_new(tmp_path: Path):

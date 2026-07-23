@@ -30,6 +30,11 @@ class Rule(BaseModel):
         ``operations``.
       - ``forbidden_layer_edge`` — components in ``from_layer`` must not depend on
         components in ``to_layer``.
+      - ``forbidden_security_finding`` — components must have no detected
+        security findings (hardcoded secrets). Narrow with ``pattern`` (regex
+        against the finding's kind/detail).
+      - ``required_layer_for_external_call`` — outbound third-party calls
+        (HTTP/SDK) are only allowed in ``allowed_layers``.
     """
 
     id: str

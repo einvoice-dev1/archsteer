@@ -50,6 +50,15 @@ class ExternalCall(BaseModel):
     loc: int = Field(0)
 
 
+class SecurityFinding(BaseModel):
+    """A source-level security concern detected by the cross-language scanner."""
+
+    kind: str = Field(..., description="hardcoded-secret | credential-pattern")
+    detail: str = Field(..., description="Human-readable description of the match")
+    file_path: str = Field(...)
+    loc: int = Field(0)
+
+
 class ArchitectureComponent(BaseModel):
     """A single unit of the system (typically one source file/module)."""
 
@@ -64,6 +73,7 @@ class ArchitectureComponent(BaseModel):
     dependencies: List[DependencyEdge] = Field(default_factory=list)
     data_access: List[DataAccessPoint] = Field(default_factory=list)
     external_calls: List[ExternalCall] = Field(default_factory=list)
+    security_findings: List[SecurityFinding] = Field(default_factory=list)
     loc: int = Field(0, description="Total lines of code in the file")
 
 

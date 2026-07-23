@@ -156,6 +156,31 @@ def _violations_for(
                     ).with_fingerprint()
                 )
 
+    elif rule.type == "forbidden_security_finding":
+        rx = re.compile(rule.pattern) if rule.pattern else None
+        for f in comp.security_findings:
+            if rx is not None and not (rx.search(f.kind) or rx.search(f.detail)):
+                continue
+            out.append(
+                Violation(
+                    rule_id=rule.id, severity=rule.severity, file=comp.file_path,
+                    loc=f.loc,
+                    message=f"security finding ({f.kind}): {f.detail}",
+                ).with_fingerprint()
+            )
+
+    elif rule.type == "required_layer_for_external_call":
+        if comp.layer in rule.allowed_layers:
+            return out
+        for ext in comp.external_calls:
+            out.append(
+                Violation(
+                    rule_id=rule.id, severity=rule.severity, file=comp.file_path,
+                    loc=ext.loc,
+                    message=f"external call to '{ext.destination}' outside allowed layers {rule.allowed_layers}",
+                ).with_fingerprint()
+            )
+
     return out
 
 

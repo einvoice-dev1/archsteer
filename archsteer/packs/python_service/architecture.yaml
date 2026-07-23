@@ -33,3 +33,22 @@ rules:
     steer: >-
       API/route handlers must only depend on the service layer. If a handler
       needs data, add a service function that delegates to the repository.
+
+  - id: no-hardcoded-secrets
+    type: forbidden_security_finding
+    description: "No hardcoded credentials, API keys, or tokens in source."
+    severity: error
+    adr: .archsteer/adr/0002-security-baseline.md
+    steer: >-
+      Never hardcode passwords, API keys, or tokens as string literals. Read
+      secrets from environment variables or a secrets manager instead.
+
+  - id: external-calls-only-in-service
+    type: required_layer_for_external_call
+    description: "Outbound HTTP/SDK calls to third parties belong in the service layer."
+    severity: warn
+    allowed_layers: [service]
+    adr: .archsteer/adr/0002-security-baseline.md
+    steer: >-
+      Do not call third-party APIs/SDKs directly from API handlers or
+      repositories. Add a service function that owns the outbound call.

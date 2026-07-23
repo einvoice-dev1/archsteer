@@ -61,10 +61,15 @@ archsteer report    # self-contained .archsteer/report.html
 
 | Pack | Detected by | Baseline rules |
 |---|---|---|
-| `java-spring` | pom.xml / build.gradle | persistence only in repositories; controllers never touch repositories |
-| `salesforce` | sfdx-project.json / force-app | SOQL only in selectors; logic-less triggers; no DML in controllers |
-| `python-service` | pyproject.toml / requirements.txt | persistence behind repositories; thin API handlers |
-| `express-to-next` | package.json | repository pattern; Express → Next.js migration |
+| `java-spring` | pom.xml / build.gradle | persistence only in repositories; controllers never touch repositories; no hardcoded secrets; outbound calls confined to services |
+| `salesforce` | sfdx-project.json / force-app | SOQL only in selectors; logic-less triggers; no DML in controllers; no hardcoded secrets; callouts confined to services |
+| `python-service` | pyproject.toml / requirements.txt | persistence behind repositories; thin API handlers; no hardcoded secrets; outbound calls confined to services |
+| `express-to-next` | package.json | repository pattern; Express → Next.js migration; no hardcoded secrets; outbound calls confined to services |
+
+Every starter pack ships a **security baseline** — no hardcoded credentials/API
+keys/tokens anywhere in source, and all outbound third-party calls confined to
+the service layer — so day-one governance covers architecture *and* the two
+security smells AI agents introduce most often.
 
 ```bash
 archsteer init --pack salesforce   # override the auto-detection
@@ -99,7 +104,8 @@ rules:
 ```
 
 Rule types: `required_layer_for_data_access`, `forbidden_import`, `forbidden_data_access`,
-`forbidden_layer_edge`.
+`forbidden_layer_edge`, `forbidden_security_finding` (hardcoded secrets), and
+`required_layer_for_external_call` (confine outbound HTTP/SDK calls to a layer).
 
 ## Using with AI agents (MCP)
 

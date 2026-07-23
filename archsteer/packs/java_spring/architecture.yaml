@@ -43,3 +43,24 @@ rules:
     steer: >-
       @Entity / domain classes are the innermost layer — they must not import
       services or controllers. Move orchestration logic out of the entity.
+
+  - id: no-hardcoded-secrets
+    type: forbidden_security_finding
+    description: "No hardcoded credentials, API keys, or tokens in source."
+    severity: error
+    adr: .archsteer/adr/0003-security-baseline.md
+    steer: >-
+      Never hardcode passwords, API keys, or tokens as string literals. Read
+      secrets from application properties bound to environment variables, or
+      a secrets manager, instead.
+
+  - id: external-calls-only-in-service
+    type: required_layer_for_external_call
+    description: "Outbound HTTP/SDK calls to third parties belong in the service layer."
+    severity: warn
+    allowed_layers: [service]
+    adr: .archsteer/adr/0003-security-baseline.md
+    steer: >-
+      Do not call third-party APIs/SDKs (RestTemplate, WebClient, HTTP
+      clients) directly from controllers or repositories. Add a @Service
+      method that owns the outbound call.

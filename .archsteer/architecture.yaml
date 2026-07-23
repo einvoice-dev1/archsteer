@@ -41,3 +41,12 @@ rules:
       Do not import typer (or any CLI concern) inside archsteer/engine/ — the
       engine must be usable as a plain library (the MCP server and external
       scripts import it directly).
+
+  - id: no-hardcoded-secrets
+    type: forbidden_security_finding
+    description: "No hardcoded credentials, API keys, or tokens anywhere in this repo."
+    severity: error
+    steer: >-
+      Never hardcode passwords, API keys, or tokens as string literals — this
+      repo publishes to PyPI and the MCP registry; a leaked credential here is
+      a supply-chain incident, not just a code-review nit.

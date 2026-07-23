@@ -46,3 +46,22 @@ rules:
     steer: >-
       Aura/LWC controllers must not run insert/update/delete directly — call a
       *Service class method that owns the transaction.
+
+  - id: no-hardcoded-secrets
+    type: forbidden_security_finding
+    description: "No hardcoded credentials, API keys, or tokens in source."
+    severity: error
+    adr: .archsteer/adr/0003-security-baseline.md
+    steer: >-
+      Never hardcode passwords, API keys, or tokens as string literals. Read
+      secrets from Custom Metadata / Named Credentials instead.
+
+  - id: external-calls-only-in-service
+    type: required_layer_for_external_call
+    description: "Callouts to external systems belong in the service layer."
+    severity: warn
+    allowed_layers: [service]
+    adr: .archsteer/adr/0003-security-baseline.md
+    steer: >-
+      Do not issue HTTP callouts directly from triggers, controllers, or
+      selectors. Add a *Service class method that owns the callout.
