@@ -53,6 +53,7 @@ archsteer adr       # draft ADRs: new structural decisions + widespread rule vio
 archsteer baseline  # accept current debt — the ratchet
 archsteer steer -f src/controllers/payment.js -t "add refund endpoint"
 archsteer check     # CI/pre-commit: fail on NET-NEW violations only
+archsteer install-hooks   # wire `check` into a local git pre-push hook
 archsteer report    # self-contained .archsteer/report.html
 ```
 
@@ -135,11 +136,18 @@ Or to any MCP-compatible client's config:
 Also published to the [official MCP registry](https://registry.modelcontextprotocol.io) as
 `io.github.einvoice-dev1/archsteer` (runnable via `uvx archsteer mcp`).
 
-## CI / pre-commit
+## CI / pre-commit / pre-push
 
 - GitHub Action: `.github/workflows/archsteer.yml` (maps, drafts ADRs, runs the net-new gate,
   uploads `report.html`).
-- Git hook: `cp hooks/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit`.
+- Local pre-push hook: `archsteer install-hooks` wires `archsteer check` into
+  `.git/hooks/pre-push` — an architecture conformance score printed on every push,
+  blocking only NET-NEW error violations (the same ratchet as CI, just earlier feedback).
+  `archsteer map`/`check` cache per-file parse results in `.archsteer/parse_cache.json`,
+  so a push that only touches a handful of files re-parses just those files, not the
+  whole repo. Uninstall with `archsteer install-hooks --uninstall`.
+- Already using husky, pre-commit, or lefthook? Add `archsteer check` as a step instead
+  of the raw git hook, e.g. a `.husky/pre-push` containing `archsteer check`.
 
 ## Conformance badge
 

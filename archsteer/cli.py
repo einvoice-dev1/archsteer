@@ -7,6 +7,7 @@
     archsteer govern   show conformance / drift
     archsteer baseline snapshot accepted violations (the ratchet)
     archsteer check    fail on NET-NEW violations only (CI / pre-commit)
+    archsteer install-hooks   wire the same check into a local git pre-push hook
     archsteer steer    write agent guardrails into CLAUDE.md / AGENTS.md
     archsteer mcp      local MCP server: agents query the model + intent mid-edit
     archsteer report   build the self-contained report.html
@@ -164,7 +165,7 @@ def map(path: Optional[str] = typer.Option(None, help="Repo root (default: cwd).
     _require_init(ws)
     if ws.model.exists():
         shutil.copyfile(ws.model, ws.model_prev)  # keep prior snapshot for `adr`
-    model = build_model(ws.root)
+    model = build_model(ws.root, cache_path=ws.parse_cache)
     model.save(ws.model)
     _record_snapshot(ws, model)
     console.print(
@@ -233,6 +234,21 @@ def baseline(path: Optional[str] = typer.Option(None)) -> None:
     console.print("New violations will now be blocked by [bold]archsteer check[/bold].")
 
 
+def _score_line(ws: Workspace, report: ConformanceReport, net_new_count: int) -> str:
+    """The one-line quality-score readout `check` prints — the whole point of
+    running it before a push: a number you see every time, not just on failure."""
+    metas = History(ws.history_dir).metas()
+    prev = metas[-1].conformance_score if metas else None
+    delta = ""
+    if prev is not None:
+        d = round(report.conformance_score - prev, 1)
+        delta = f" ({'+' if d >= 0 else ''}{d} pts)"
+    return (
+        f"\n[bold]Architecture conformance: {report.conformance_score}%{delta}[/bold] · "
+        f"{len(report.all_violations)} open violation(s), {net_new_count} net-new"
+    )
+
+
 @app.command()
 def check(
     path: Optional[str] = typer.Option(None),
@@ -242,7 +258,7 @@ def check(
     ws = _ws(path)
     _require_init(ws)
     if remap:
-        model = build_model(ws.root)
+        model = build_model(ws.root, cache_path=ws.parse_cache)
         model.save(ws.model)
     else:
         model = _load_model(ws)
@@ -261,10 +277,62 @@ def check(
     for v in net_new:
         tag = "[red]✗[/red]" if v.severity == "error" else "[yellow]△[/yellow]"
         console.print(f"{tag} {v.file}:{v.loc} [dim]{v.rule_id}[/dim] — {v.message}")
+    if ws.intent.exists():
+        console.print(_score_line(ws, report, len(net_new)))
     if blocking:
         console.print(f"\n[red]✗ {len(blocking)} net-new error violation(s) block this change.[/red]")
         raise typer.Exit(1)
     console.print("\n[green]✓ No net-new blocking violations.[/green]")
+
+
+_HOOK_MARKER = "# archsteer:pre-push"
+_HOOK_SCRIPT = f"""#!/bin/sh
+{_HOOK_MARKER}
+# Installed by `archsteer install-hooks`. Shows the architecture conformance
+# score before every push and blocks only NET-NEW error violations — the same
+# ratchet `archsteer check` already applies in CI. If CI would reject this
+# push, this just says so before you wait for CI to.
+if ! command -v archsteer >/dev/null 2>&1; then
+  exit 0
+fi
+archsteer check
+"""
+
+
+@app.command(name="install-hooks")
+def install_hooks(
+    path: Optional[str] = typer.Option(None),
+    uninstall: bool = typer.Option(False, help="Remove a previously installed archsteer pre-push hook."),
+    force: bool = typer.Option(False, help="Overwrite an existing pre-push hook not written by archsteer."),
+) -> None:
+    """Wire `archsteer check` into a local git pre-push hook — a quality score on every push."""
+    ws = _ws(path)
+    hook_path = ws.root / ".git" / "hooks" / "pre-push"
+
+    if uninstall:
+        if hook_path.exists() and _HOOK_MARKER in hook_path.read_text(encoding="utf-8"):
+            hook_path.unlink()
+            console.print(f"[green]✓[/green] Removed [bold]{hook_path}[/bold]")
+        else:
+            console.print("[yellow]No archsteer pre-push hook found.[/yellow]")
+        return
+
+    if not (ws.root / ".git").is_dir():
+        console.print(f"[red]Not a git repository[/red] (no .git directory) at {ws.root}")
+        raise typer.Exit(1)
+    if hook_path.exists() and _HOOK_MARKER not in hook_path.read_text(encoding="utf-8") and not force:
+        console.print(
+            f"[red]A pre-push hook already exists at {hook_path} and wasn't written by archsteer.[/red]\n"
+            "Re-run with --force to overwrite it, or add `archsteer check` to it by hand."
+        )
+        raise typer.Exit(1)
+
+    hook_path.parent.mkdir(parents=True, exist_ok=True)
+    hook_path.write_text(_HOOK_SCRIPT, encoding="utf-8")
+    hook_path.chmod(0o755)
+    console.print(f"[green]✓[/green] Installed a pre-push hook at [bold]{hook_path}[/bold]")
+    console.print("  Every push now runs [bold]archsteer check[/bold] first and prints the conformance score.")
+    console.print("  Already using husky / pre-commit / lefthook? See the README to wire `archsteer check` into that instead.")
 
 
 @app.command()
@@ -348,7 +416,7 @@ def xray(path: Optional[str] = typer.Option(None, help="Repo root (default: cwd)
     ws.dir.mkdir(parents=True, exist_ok=True)
     if ws.model.exists():
         shutil.copyfile(ws.model, ws.model_prev)
-    model = build_model(ws.root)
+    model = build_model(ws.root, cache_path=ws.parse_cache)
     model.save(ws.model)
     _record_snapshot(ws, model)
     ws.architecture_md.write_text(render_architecture_md(model), encoding="utf-8")

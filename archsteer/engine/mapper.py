@@ -7,14 +7,15 @@ declared third-party manifest dependencies that ADR decision detection watches.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
 import subprocess
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
-from archsteer.engine.model import ArchitectureModel, DependencyEdge
+from archsteer.engine.model import ArchitectureComponent, ArchitectureModel, DependencyEdge
 from archsteer.engine.parser import CodeParserFacade
 from archsteer.engine.security import scan_source
 
@@ -206,7 +207,28 @@ def _apex_name_index(components: dict) -> dict:
     }
 
 
-def build_model(root_dir: str | Path) -> ArchitectureModel:
+def _load_parse_cache(cache_path: Path) -> Dict[str, dict]:
+    try:
+        return json.loads(cache_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _save_parse_cache(cache_path: Path, cache: Dict[str, dict]) -> None:
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    cache_path.write_text(json.dumps(cache), encoding="utf-8")
+
+
+def build_model(root_dir: str | Path, cache_path: Optional[str | Path] = None) -> ArchitectureModel:
+    """Assemble the model from source.
+
+    ``cache_path``, when given, makes per-file extraction incremental: a file
+    whose content hash is unchanged since the last run reuses its cached
+    :class:`ArchitectureComponent` instead of being re-parsed and re-scanned.
+    Cross-file edge resolution (the second pass below) always re-runs over the
+    full component set, since a file's imports can resolve differently when
+    *other* files change even though its own source didn't.
+    """
     root = Path(root_dir).resolve()
     parser = CodeParserFacade()
     model = ArchitectureModel(
@@ -215,22 +237,38 @@ def build_model(root_dir: str | Path) -> ArchitectureModel:
         manifest_dependencies=_read_manifest_deps(root),
     )
 
+    old_cache = _load_parse_cache(Path(cache_path)) if cache_path else {}
+    new_cache: Dict[str, dict] = {}
+
     for path in sorted(root.rglob("*")):
         if not path.is_file() or path.suffix not in SOURCE_EXTS:
             continue
         if any(part in IGNORE_DIRS for part in path.relative_to(root).parts):
             continue
-        comp = parser.parse_file(path, root)
-        # The parser may have already set a layer from in-source signals
-        # (Spring stereotype annotations, Apex naming conventions) — those
-        # beat path heuristics, which vary wildly across build layouts.
-        comp.layer = comp.layer or _infer_layer(comp.file_path)
+        rel = str(path.relative_to(root))
         try:
             text = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             text = ""
-        comp.security_findings = scan_source(comp.file_path, text)
+        digest = hashlib.sha1(text.encode("utf-8")).hexdigest()
+
+        cached = old_cache.get(rel)
+        if cached is not None and cached.get("hash") == digest:
+            comp = ArchitectureComponent.model_validate(cached["component"])
+        else:
+            comp = parser.parse_file(path, root)
+            # The parser may have already set a layer from in-source signals
+            # (Spring stereotype annotations, Apex naming conventions) — those
+            # beat path heuristics, which vary wildly across build layouts.
+            comp.layer = comp.layer or _infer_layer(comp.file_path)
+            comp.security_findings = scan_source(comp.file_path, text)
+
+        if cache_path:
+            new_cache[rel] = {"hash": digest, "component": comp.model_dump(mode="json")}
         model.components[comp.file_path] = comp
+
+    if cache_path:
+        _save_parse_cache(Path(cache_path), new_cache)
 
     # Second pass: resolve internal edges now that all components are known.
     # Python deps are probed even when the parser flagged them external:

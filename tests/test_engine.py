@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
+from typer.testing import CliRunner
+
+from archsteer.cli import app
 from archsteer.docs import render_architecture_md
 from archsteer.engine.baseline import Baseline
 from archsteer.engine.conformance import evaluate
@@ -427,3 +431,69 @@ def test_manifest_deps_runtime_only(tmp_path: Path) -> None:
     deps = set(build_model(tmp_path).manifest_dependencies)
     assert {"express", "react", "pydantic", "rich"} <= deps
     assert not {"eslint", "pytest", "BSD-3-Clause", "--strict-markers"} & deps
+
+
+def test_build_model_cache_skips_unchanged_files(tmp_path: Path, monkeypatch) -> None:
+    _legacy_repo(tmp_path)
+    cache_path = tmp_path / ".archsteer" / "parse_cache.json"
+    build_model(tmp_path, cache_path=cache_path)
+    assert cache_path.exists()
+
+    from archsteer.engine import parser as parser_module
+
+    calls: list[Path] = []
+    original = parser_module.CodeParserFacade.parse_file
+
+    def spy(self, path, root):  # noqa: ANN001
+        calls.append(Path(path).resolve())
+        return original(self, path, root)
+
+    monkeypatch.setattr(parser_module.CodeParserFacade, "parse_file", spy)
+
+    # Nothing changed since the first build -> every file is a cache hit.
+    model = build_model(tmp_path, cache_path=cache_path)
+    assert calls == []
+    assert "src/controllers/payment_controller.js" in model.components
+
+    # Touch exactly one file -> only that file gets re-parsed.
+    _write(
+        tmp_path, "src/services/user_service.js",
+        "const {find}=require('../repositories/user_repository');\n"
+        "module.exports={get:(id)=>find(id),extra:true};",
+    )
+    calls.clear()
+    build_model(tmp_path, cache_path=cache_path)
+    assert calls == [(tmp_path / "src/services/user_service.js").resolve()]
+
+
+def test_check_prints_conformance_score_line(tmp_path: Path) -> None:
+    _legacy_repo(tmp_path)
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--path", str(tmp_path)]).exit_code == 0
+    result = runner.invoke(app, ["check", "--path", str(tmp_path)])
+    assert "Architecture conformance:" in result.output
+
+
+def test_install_hooks_writes_blocks_foreign_and_uninstalls(tmp_path: Path) -> None:
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    runner = CliRunner()
+    hook = tmp_path / ".git" / "hooks" / "pre-push"
+
+    result = runner.invoke(app, ["install-hooks", "--path", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+    assert "archsteer check" in hook.read_text(encoding="utf-8")
+    assert hook.stat().st_mode & 0o111  # executable
+
+    # A foreign hook is never silently clobbered.
+    hook.write_text("#!/bin/sh\necho custom\n", encoding="utf-8")
+    blocked = runner.invoke(app, ["install-hooks", "--path", str(tmp_path)])
+    assert blocked.exit_code != 0
+    assert "echo custom" in hook.read_text(encoding="utf-8")
+
+    forced = runner.invoke(app, ["install-hooks", "--path", str(tmp_path), "--force"])
+    assert forced.exit_code == 0
+    assert "archsteer check" in hook.read_text(encoding="utf-8")
+
+    uninstalled = runner.invoke(app, ["install-hooks", "--path", str(tmp_path), "--uninstall"])
+    assert uninstalled.exit_code == 0
+    assert not hook.exists()

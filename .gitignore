@@ -14,6 +14,7 @@ dist/
 **/.archsteer/model.prev.json
 **/.archsteer/report.html
 **/.archsteer/history/
+**/.archsteer/parse_cache.json
 
 # --- OS ---
 .DS_Store

@@ -23,6 +23,10 @@ class Workspace:
         return self.dir / "model.prev.json"
 
     @property
+    def parse_cache(self) -> Path:
+        return self.dir / "parse_cache.json"
+
+    @property
     def baseline(self) -> Path:
         return self.dir / "baseline.json"
 
