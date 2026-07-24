@@ -52,8 +52,16 @@ PACKS = {
     "java-spring": "Layered Spring (controller → service → repository → model)",
     "salesforce": "Salesforce enterprise patterns (logic-less triggers, SOQL in selectors)",
     "python-service": "Layered Python service (api → service → repository)",
+    "nextjs-app-router": "Next.js App Router (page/layout/api/lib) — data access + secrets baseline",
     "express-to-next": "Express → Next.js migration + repository pattern",
 }
+
+
+def _package_deps(root: Path) -> dict:
+    try:
+        return json.loads((root / "package.json").read_text(encoding="utf-8")).get("dependencies", {}) or {}
+    except (json.JSONDecodeError, OSError):
+        return {}
 
 
 def _detect_pack(root: Path) -> str:
@@ -65,6 +73,12 @@ def _detect_pack(root: Path) -> str:
         return "java-spring"
     if any((root / f).exists() for f in ("pyproject.toml", "setup.py", "requirements.txt")):
         return "python-service"
+    if (root / "package.json").exists():
+        deps = _package_deps(root)
+        # A real App Router app, not a legacy Express repo migrating TO Next —
+        # the latter gets the migration-flavored pack instead.
+        if "next" in deps and "express" not in deps and (root / "app").is_dir():
+            return "nextjs-app-router"
     return "express-to-next"
 
 

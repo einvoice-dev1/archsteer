@@ -1,0 +1,58 @@
+version: 1
+target: "Next.js App Router: pages/layouts stay presentational, data access and secrets stay in lib/ and route handlers"
+
+# Layers come from Next.js's own reserved filenames first — `page.tsx`,
+# `layout.tsx`, and `route.ts` ARE those roles regardless of which folder
+# they live under — then from directory names (components/ -> ui, lib/ -> lib).
+# Adjust the directory names in archsteer/engine/mapper.py LAYER_HINTS if your
+# repo uses different conventions (e.g. `features/` instead of `lib/`).
+layers:
+  - page
+  - layout
+  - api
+  - ui
+  - lib
+
+rules:
+  - id: no-data-access-outside-lib
+    type: required_layer_for_data_access
+    description: "Database/ORM access (Supabase, Prisma, raw SQL) may only live in lib/ or a route handler."
+    severity: error
+    allowed_layers: [lib, api]
+    operations: [READ, WRITE, DELETE, RAW]
+    adr: .archsteer/adr/0001-data-access-boundary.md
+    steer: >-
+      Do NOT query Supabase/Prisma/a database directly from a page, layout, or
+      component. Add a function in lib/ (or a route handler) and call that instead.
+
+  - id: no-direct-db-import-in-ui
+    type: forbidden_import
+    description: "UI components must not import a database/ORM client directly; go through lib/."
+    severity: warn
+    scope_layer: ui
+    pattern: "^@supabase/supabase-js$|^@prisma/client$|^pg$|^mysql2"
+    adr: .archsteer/adr/0001-data-access-boundary.md
+    steer: >-
+      Components must depend on a lib/ function, never import a database/ORM
+      client (@supabase/supabase-js, @prisma/client, pg, mysql2) directly.
+
+  - id: external-calls-only-in-lib
+    type: required_layer_for_external_call
+    description: "Outbound HTTP/SDK calls to third parties belong in lib/ or a route handler, not a page/component."
+    severity: warn
+    allowed_layers: [lib, api]
+    adr: .archsteer/adr/0002-external-calls-in-lib.md
+    steer: >-
+      Do not call third-party APIs/SDKs directly from a page, layout, or
+      component. Add a lib/ function (or a route handler) that owns the call.
+      (Fetching your own /api/... route from a component is fine — that's not
+      a third-party call.)
+
+  - id: no-hardcoded-secrets
+    type: forbidden_security_finding
+    description: "No hardcoded credentials, API keys, or tokens in source."
+    severity: error
+    adr: .archsteer/adr/0003-security-baseline.md
+    steer: >-
+      Never hardcode passwords, API keys, or tokens as string literals. Read
+      secrets from environment variables (process.env) instead.

@@ -6,13 +6,13 @@
     "url": "https://github.com/einvoice-dev1/archsteer",
     "source": "github"
   },
-  "version": "0.8.0",
+  "version": "0.9.0",
   "websiteUrl": "https://www.archsteer.com",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "archsteer",
-      "version": "0.8.0",
+      "version": "0.9.0",
       "runtimeHint": "uvx",
       "transport": { "type": "stdio" },
       "packageArguments": [

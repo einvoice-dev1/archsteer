@@ -409,6 +409,40 @@ def test_python_import_resolution(tmp_path: Path) -> None:
     assert all(d.external for d in utils.dependencies if d.target == "json")
 
 
+def test_ts_path_alias_resolves_to_internal_edge(tmp_path: Path) -> None:
+    """`@/lib/x`-style imports are the default alias in every create-next-app
+    project; without tsconfig-aware resolution they're indistinguishable from
+    a third-party package and the whole diagram comes out edge-less."""
+    _write(tmp_path, "tsconfig.json", '{"compilerOptions": {"baseUrl": ".", "paths": {"@/*": ["./*"]}}}')
+    _write(tmp_path, "app/dashboard/page.tsx", 'import { listRepos } from "@/lib/store";\n')
+    _write(tmp_path, "lib/store.ts", "export function listRepos(){ return []; }\n")
+    model = build_model(tmp_path)
+    assert ("app/dashboard/page.tsx", "lib/store.ts") in set(model.internal_edges())
+    # a genuine third-party package must NOT be swept up by the alias probe
+    dep = model.components["app/dashboard/page.tsx"]
+    assert all(d.target != "react" or d.external for d in dep.dependencies)
+
+
+def test_ts_path_alias_tolerates_jsonc_comments_and_missing_tsconfig(tmp_path: Path) -> None:
+    _write(
+        tmp_path, "tsconfig.json",
+        "{\n"
+        "  // path aliases\n"
+        '  "compilerOptions": { "baseUrl": ".", "paths": { "@/*": ["./*"] } } /* trailing */\n'
+        "}\n",
+    )
+    _write(tmp_path, "app/page.tsx", 'import { x } from "@/lib/util";\n')
+    _write(tmp_path, "lib/util.ts", "export const x = 1;\n")
+    model = build_model(tmp_path)
+    assert ("app/page.tsx", "lib/util.ts") in set(model.internal_edges())
+
+    # No tsconfig at all: an @/ import stays external, no crash.
+    (tmp_path / "tsconfig.json").unlink()
+    model2 = build_model(tmp_path)
+    dep = model2.components["app/page.tsx"].dependencies[0]
+    assert dep.external and dep.target == "@/lib/util"
+
+
 def test_python_resolution_at_package_root(tmp_path: Path) -> None:
     """X-raying the package dir itself resolves pkg-prefixed absolute imports."""
     pkg = tmp_path / "mypkg"
@@ -497,3 +531,104 @@ def test_install_hooks_writes_blocks_foreign_and_uninstalls(tmp_path: Path) -> N
     uninstalled = runner.invoke(app, ["install-hooks", "--path", str(tmp_path), "--uninstall"])
     assert uninstalled.exit_code == 0
     assert not hook.exists()
+
+
+NEXTJS_PACK = Path(__file__).resolve().parent.parent / "archsteer" / "packs" / "nextjs_app_router"
+
+
+def _nextjs_intent() -> Intent:
+    return Intent.load(NEXTJS_PACK / "architecture.yaml")
+
+
+def test_fetch_same_origin_excluded_absolute_url_gets_host_label(tmp_path: Path) -> None:
+    _write(
+        tmp_path, "web/components/ContactForm.tsx",
+        "async function submit(){ return fetch('/api/contact', {method:'POST'}); }\n"
+        "async function track(){ return fetch('https://analytics.example.com/collect'); }\n"
+        "async function unknown(url){ return fetch(url); }\n",
+    )
+    model = build_model(tmp_path)
+    comp = model.components["web/components/ContactForm.tsx"]
+    destinations = [e.destination for e in comp.external_calls]
+    # same-origin /api/contact is excluded entirely -> only 2 of the 3 fetches remain
+    assert len(comp.external_calls) == 2
+    assert "analytics.example.com" in destinations
+    assert "HTTP_CLIENT_CALL" in destinations  # non-literal fetch(url): kept, conservative
+
+
+def test_supabase_query_detected_single_and_multiline_chain(tmp_path: Path) -> None:
+    _write(
+        tmp_path, "web/lib/store.ts",
+        'export async function listRepos(){ return sb.from("repo_snapshots").select("*"); }\n'
+        'export async function saveScore(v: number){\n'
+        '  return sb\n'
+        '    .from("repo_snapshots")\n'
+        '    .insert({ v });\n'
+        '}\n',
+    )
+    model = build_model(tmp_path)
+    comp = model.components["web/lib/store.ts"]
+    assert {d.entity for d in comp.data_access} == {"repo_snapshots"}
+    ops = {op for d in comp.data_access for op in d.operations}
+    assert {"READ", "WRITE"} <= ops
+
+
+def test_app_router_reserved_filenames_get_layers_regardless_of_directory() -> None:
+    from archsteer.engine.mapper import _infer_layer
+    assert _infer_layer("app/blog/[slug]/page.tsx") == "page"
+    assert _infer_layer("app/layout.tsx") == "layout"
+    assert _infer_layer("app/api/contact/route.ts") == "api"
+    assert _infer_layer("app/webhooks/stripe/route.ts") == "api"  # route.ts outside any "api" dir
+
+
+def test_nextjs_app_router_pack_autodetected_over_express_migration_pack(tmp_path: Path) -> None:
+    from archsteer.cli import _detect_pack
+    _write(tmp_path, "package.json", '{"dependencies":{"next":"15.0.0","react":"19.0.0"}}')
+    _write(tmp_path, "app/page.tsx", "export default function Home(){ return null; }\n")
+    assert _detect_pack(tmp_path) == "nextjs-app-router"
+
+    # An Express repo migrating TO Next still gets the migration pack, not the
+    # app-router pack, even once "next" appears as a dependency.
+    _write(tmp_path, "package.json", '{"dependencies":{"express":"^4","next":"15.0.0"}}')
+    assert _detect_pack(tmp_path) == "express-to-next"
+
+
+def test_nextjs_pack_flags_data_access_and_external_calls_outside_lib(tmp_path: Path) -> None:
+    _write(tmp_path, "package.json", '{"dependencies":{"next":"15.0.0"}}')
+    _write(
+        tmp_path, "app/dashboard/page.tsx",
+        'export default async function Dashboard(){\n'
+        '  const rows = await sb.from("repo_snapshots").select("*");\n'
+        '  const r = await fetch("https://api.stripe.com/v1/charges");\n'
+        '  return null;\n'
+        '}\n',
+    )
+    _write(
+        tmp_path, "lib/store.ts",
+        'export async function listRepos(){ return sb.from("repo_snapshots").select("*"); }\n',
+    )
+    report = evaluate(build_model(tmp_path), _nextjs_intent())
+
+    da = next(r for r in report.results if r.rule_id == "no-data-access-outside-lib")
+    assert {v.file for v in da.violations} == {"app/dashboard/page.tsx"}
+
+    ext = next(r for r in report.results if r.rule_id == "external-calls-only-in-lib")
+    assert {v.file for v in ext.violations} == {"app/dashboard/page.tsx"}
+
+
+def test_agent_worktree_dirs_are_not_scanned(tmp_path: Path) -> None:
+    """A subagent's git worktree under .claude/ is a full duplicate checkout of
+    the repo — scanning it double-counts every component. Regression guard:
+    tooling dirs that can hold duplicate checkouts must be skipped entirely."""
+    _legacy_repo(tmp_path)  # the real repo
+    # A phantom duplicate copy sitting inside .claude/worktrees/<id>/
+    _write(
+        tmp_path, ".claude/worktrees/abc123/src/controllers/payment_controller.js",
+        "async function charge(){ return db.query('INSERT INTO payments (a) VALUES (1)'); }\n",
+    )
+    _write(tmp_path, ".cursor/rules/whatever.js", "const x = require('pg');\n")
+    model = build_model(tmp_path)
+    assert not any(p.startswith(".claude/") for p in model.components)
+    assert not any(p.startswith(".cursor/") for p in model.components)
+    # the real controller is still there
+    assert "src/controllers/payment_controller.js" in model.components

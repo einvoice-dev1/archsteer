@@ -53,6 +53,14 @@ _JS_EXPORT = re.compile(
     r"""export\s+(?:default\s+)?(?:async\s+)?(?:function|class|const|let|var)\s+(?P<name>[A-Za-z0-9_$]+)"""
 )
 _JS_HTTP = re.compile(r"""\b(?:fetch|axios|got|superagent|ky)\b\s*[.(]|\bhttps?\.\w+\s*\(""")
+# `fetch(` specifically needs a same-origin carve-out: a Next.js/React component
+# calling its own `/api/...` route handler via fetch('/api/x') is not an
+# external call, and flagging it produces exactly the false positives an
+# architect stops trusting the tool over. Other HTTP clients (axios, got, a
+# direct https.request) are kept as unconditionally external — those are
+# never how you'd call your own same-origin route.
+_FETCH_LITERAL_ARG = re.compile(r"""\bfetch\s*\(\s*[`'"](?P<url>[^`'"]*)[`'"]""")
+_ABS_URL_HOST = re.compile(r"""^(?:[a-z][a-z0-9+.\-]*:)?//(?P<host>[A-Za-z0-9.\-]+)""", re.IGNORECASE)
 
 # Python ---------------------------------------------------------------------
 _PY_IMPORT = re.compile(r"""^\s*import\s+(?P<mod>[A-Za-z0-9_.]+)""", re.MULTILINE)
@@ -159,6 +167,20 @@ _PRISMA = re.compile(
     r"""prisma\.(?P<entity>[A-Za-z0-9_]+)\.(?P<op>findMany|findUnique|findFirst|create|update|delete|upsert|count)"""
 )
 _SQLALCHEMY = re.compile(r"""session\.query\(\s*(?P<entity>[A-Za-z0-9_]+)""")
+# Supabase JS SDK: `.from("table")` chained (often across lines/formatting) to
+# an operation call — `sb.from("x").select(...)`, or
+#   .from("x")
+#   .insert({...})
+# The lazy, negated-lookahead middle group stops at the next `.from(` so an
+# unrelated later call in the same file doesn't get attributed to this entity.
+# Known gap: `.rpc(...)` stored-procedure calls aren't recognized yet.
+_SUPABASE = re.compile(
+    r"""\.from\(\s*[`'"](?P<entity>[A-Za-z0-9_]+)[`'"]\s*\)"""
+    r"""(?:(?!\.from\().)*?"""
+    r"""\.(?P<op>select|insert|update|upsert|delete)\s*\(""",
+    re.DOTALL,
+)
+_SUPABASE_OP_MAP = {"select": "READ", "insert": "WRITE", "update": "WRITE", "upsert": "WRITE", "delete": "DELETE"}
 
 _SQL_OP_MAP = {
     "select": "READ",
@@ -241,9 +263,19 @@ class CodeParserFacade:
         if "module.exports" in source or "export default" in source:
             comp.exported_apis.append("default")
         for m in _JS_HTTP.finditer(source):
+            destination = "HTTP_CLIENT_CALL"
+            if m.group(0).lstrip().startswith("fetch"):
+                arg = _FETCH_LITERAL_ARG.match(source, m.start())
+                if arg is not None:
+                    url = arg.group("url")
+                    if url.startswith("/") and not url.startswith("//"):
+                        continue  # same-origin call to our own route — not external
+                    host = _ABS_URL_HOST.match(url)
+                    if host:
+                        destination = host.group("host")
             comp.external_calls.append(
                 ExternalCall(
-                    destination="HTTP_CLIENT_CALL",
+                    destination=destination,
                     context=source[m.start():m.start() + 40].splitlines()[0].strip(),
                     loc=_line_of(source, m.start()),
                 )
@@ -406,6 +438,15 @@ class CodeParserFacade:
                 DataAccessPoint(
                     entity=m.group("entity"),
                     operations={"READ"},
+                    file_path=rel,
+                    loc=_line_of(source, m.start()),
+                )
+            )
+        for m in _SUPABASE.finditer(source):
+            comp.data_access.append(
+                DataAccessPoint(
+                    entity=m.group("entity"),
+                    operations={_SUPABASE_OP_MAP[m.group("op")]},
                     file_path=rel,
                     loc=_line_of(source, m.start()),
                 )

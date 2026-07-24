@@ -27,6 +27,10 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10 only
 IGNORE_DIRS = {
     ".git", ".archsteer", ".venv", "venv", "node_modules", "__pycache__",
     "dist", "build", ".next", ".turbo", "coverage", ".pytest_cache", ".mypy_cache",
+    # Agent/VCS tooling dirs that can hold *full duplicate checkouts* of the repo
+    # (e.g. Claude Code puts subagent git worktrees under .claude/worktrees/).
+    # Scanning these double-counts the whole codebase into the model.
+    ".claude", ".cursor", ".hg", ".svn",
 }
 SOURCE_EXTS = {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py", ".java", ".cls", ".trigger"}
 
@@ -51,8 +55,21 @@ LAYER_HINTS = [
 ]
 _CANDIDATE_EXTS = ["", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py"]
 
+# Next.js App Router reserved filenames carry a stronger, unambiguous layer
+# signal than any directory-name heuristic could — a file literally named
+# `page.tsx` or `route.ts` IS that role, regardless of which folder it's under
+# (route.ts in particular is not always nested under an "api" directory).
+_APP_ROUTER_FILE_LAYERS = {
+    "page": "page",
+    "layout": "layout",
+    "route": "api",
+}
+
 
 def _infer_layer(rel_path: str) -> Optional[str]:
+    stem = Path(rel_path).stem.lower()
+    if stem in _APP_ROUTER_FILE_LAYERS:
+        return _APP_ROUTER_FILE_LAYERS[stem]
     segments = {s.lower() for s in Path(rel_path).parts}
     for hint, layer in LAYER_HINTS:
         if hint in segments:
@@ -106,12 +123,8 @@ def _read_manifest_deps(root: Path) -> List[str]:
     return sorted(deps)
 
 
-def _resolve_internal(importer_rel: str, target: str, components: dict) -> Optional[str]:
-    """Resolve a relative JS/TS import (``./x``) to a component key, or None."""
-    if not target.startswith("."):
-        return None
-    raw = (Path(importer_rel).parent / target).as_posix()
-    base_posix = os.path.normpath(raw).replace(os.sep, "/")  # collapse ../ segments
+def _probe_candidates(base_posix: str, components: dict) -> Optional[str]:
+    """Try each source extension and an /index fallback against a base path."""
     for ext in _CANDIDATE_EXTS:
         cand = f"{base_posix}{ext}"
         if cand in components:
@@ -119,6 +132,74 @@ def _resolve_internal(importer_rel: str, target: str, components: dict) -> Optio
         idx = f"{base_posix}/index{ext}" if ext else None
         if idx and idx in components:
             return idx
+    return None
+
+
+def _resolve_internal(importer_rel: str, target: str, components: dict) -> Optional[str]:
+    """Resolve a relative JS/TS import (``./x``) to a component key, or None."""
+    if not target.startswith("."):
+        return None
+    raw = (Path(importer_rel).parent / target).as_posix()
+    base_posix = os.path.normpath(raw).replace(os.sep, "/")  # collapse ../ segments
+    return _probe_candidates(base_posix, components)
+
+
+_JSONC_TOKEN = re.compile(r'"(?:\\.|[^"\\])*"|//[^\n]*|/\*.*?\*/', re.DOTALL)
+
+
+def _strip_jsonc_comments(text: str) -> str:
+    """Strip // and /* */ comments from JSONC, without corrupting string
+    literals that happen to contain a literal `/*` — e.g. the alias pattern
+    `"@/*"`, the single most common tsconfig path pattern there is. A naive
+    comment-stripping regex reads that `/*` as a block-comment start and eats
+    everything up to the next real `*/` in the file."""
+    return _JSONC_TOKEN.sub(lambda m: m.group(0) if m.group(0).startswith('"') else "", text)
+
+
+def _read_ts_path_aliases(root: Path) -> tuple[str, dict]:
+    """``compilerOptions.baseUrl``/``paths`` from tsconfig.json (or jsconfig.json).
+
+    Without this, every ``@/lib/x``-style import — the default alias in every
+    `create-next-app` project — is textually indistinguishable from a
+    third-party package and never resolves to an internal edge, leaving the
+    layer diagram edge-less on a huge share of real Next.js/TS repos.
+    """
+    for name in ("tsconfig.json", "jsconfig.json"):
+        p = root / name
+        if not p.exists():
+            continue
+        try:
+            data = json.loads(_strip_jsonc_comments(p.read_text(encoding="utf-8")))
+        except (OSError, json.JSONDecodeError):
+            continue
+        opts = data.get("compilerOptions") or {}
+        paths = opts.get("paths") or {}
+        if paths:
+            return opts.get("baseUrl", "."), paths
+    return ".", {}
+
+
+def _resolve_ts_alias(target: str, base_url: str, paths: dict, components: dict) -> Optional[str]:
+    """Resolve a tsconfig path-alias import to a component key, trying each
+    configured candidate pattern in order (mirrors TS's own resolution order,
+    simplified: first candidate that hits a real file wins)."""
+    for pattern, candidates in paths.items():
+        if "*" in pattern:
+            prefix = pattern.split("*", 1)[0]
+            if not target.startswith(prefix):
+                continue
+            rest = target[len(prefix):]
+            for cand in candidates:
+                base_posix = os.path.normpath(os.path.join(base_url, cand.replace("*", rest, 1))).replace(os.sep, "/")
+                hit = _probe_candidates(base_posix, components)
+                if hit:
+                    return hit
+        elif pattern == target:
+            for cand in candidates:
+                base_posix = os.path.normpath(os.path.join(base_url, cand)).replace(os.sep, "/")
+                hit = _probe_candidates(base_posix, components)
+                if hit:
+                    return hit
     return None
 
 
@@ -278,6 +359,7 @@ def build_model(root_dir: str | Path, cache_path: Optional[str | Path] = None) -
     # actual component set.
     java_index = _java_class_index(model.components)
     apex_index = _apex_name_index(model.components)
+    ts_base_url, ts_paths = _read_ts_path_aliases(root)
     for rel, comp in model.components.items():
         extra: List[DependencyEdge] = []
         keep: List[DependencyEdge] = []
@@ -304,6 +386,13 @@ def build_model(root_dir: str | Path, cache_path: Optional[str | Path] = None) -
                     continue
                 hits = [one]
             elif dep.external:
+                if ts_paths and comp.language in ("javascript", "typescript", "tsx"):
+                    hit = _resolve_ts_alias(dep.target, ts_base_url, ts_paths, model.components)
+                    if hit is not None:
+                        dep.target = hit
+                        dep.external = False
+                        keep.append(dep)
+                        continue
                 keep.append(dep)
                 continue
             else:

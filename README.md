@@ -37,10 +37,14 @@ pip install "archsteer[treesitter]"   # optional native acceleration
 (Since 0.4.1 the MCP server ships in the base install; `pip install "archsteer[mcp]"` still
 works as a no-op alias.)
 
-**Languages:** JavaScript / TypeScript, Python, **Java** (Spring-aware), and
-**Salesforce Apex** (SOQL/DML + trigger/handler/selector conventions). Layer
-detection uses in-source signals first — Spring stereotype annotations, Apex
-class-name conventions — then directory names.
+**Languages:** JavaScript / TypeScript (Next.js App Router-aware, including
+`tsconfig.json` path-alias resolution — `@/lib/x` resolves to a real internal
+edge, not a phantom third-party dependency), Python, **Java** (Spring-aware),
+and **Salesforce Apex** (SOQL/DML + trigger/handler/selector conventions).
+Layer detection uses in-source signals first — Spring stereotype annotations,
+Apex class-name conventions, Next.js reserved filenames (`page.tsx` →
+`page`, `layout.tsx` → `layout`, `route.ts` → `api`, regardless of directory)
+— then directory names.
 
 ## Quickstart
 
@@ -65,7 +69,12 @@ archsteer report    # self-contained .archsteer/report.html
 | `java-spring` | pom.xml / build.gradle | persistence only in repositories; controllers never touch repositories; no hardcoded secrets; outbound calls confined to services |
 | `salesforce` | sfdx-project.json / force-app | SOQL only in selectors; logic-less triggers; no DML in controllers; no hardcoded secrets; callouts confined to services |
 | `python-service` | pyproject.toml / requirements.txt | persistence behind repositories; thin API handlers; no hardcoded secrets; outbound calls confined to services |
-| `express-to-next` | package.json | repository pattern; Express → Next.js migration; no hardcoded secrets; outbound calls confined to services |
+| `nextjs-app-router` | package.json has `next`, an `app/` dir, no `express` | data access (Supabase/Prisma/raw SQL) and third-party calls confined to lib/ or a route handler; no hardcoded secrets |
+| `express-to-next` | package.json (fallback, or `express` present) | repository pattern; Express → Next.js migration; no hardcoded secrets; outbound calls confined to services |
+
+A repo with `next` as a dependency and an `app/` directory gets the App Router
+pack; a `package.json` with `express` (even one migrating to Next) gets the
+migration pack instead — those are different problems with different rules.
 
 Every starter pack ships a **security baseline** — no hardcoded credentials/API
 keys/tokens anywhere in source, and all outbound third-party calls confined to
