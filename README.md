@@ -18,6 +18,10 @@ conform instead of replicating local slop.
 
 Everything is a projection of one code-derived model — `.archsteer/model.json`.
 
+**Local by default:** the X-ray and governance workflow runs locally and never uploads or
+executes your repository's source code. It needs no account, API key, or configuration
+before the first scan; cloud snapshot publishing is a separate, explicit `push` command.
+
 ```
                     .archsteer/model.json  (single source of truth)
                                  │
@@ -61,6 +65,15 @@ Apex class-name conventions, Next.js reserved filenames (`page.tsx` →
 — then directory names.
 
 ## Quickstart
+
+For the fastest proof, run this in a repository and open the generated
+`.archsteer/report.html`:
+
+```bash
+archsteer init && archsteer map && archsteer report
+```
+
+Then add the controls you need:
 
 ```bash
 archsteer init      # scaffold .archsteer/ + a starter rule pack auto-matched to your stack
@@ -220,3 +233,8 @@ python3.11 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 pytest -q
 ```
+
+Found a surprising edge, a false positive, or a stack ArchSteer should understand better?
+[Open an issue](https://github.com/einvoice-dev1/archsteer/issues) with the language,
+framework, and smallest reproducible example. Builder feedback directly shapes the
+detectors and starter rule packs.
