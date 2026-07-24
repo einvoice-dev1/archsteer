@@ -141,23 +141,29 @@ on disk, so there's no network call and nothing leaves your machine. It exposes 
 - `get_target_pattern` — the invariants that apply to a file, *before* you write to it.
 - `check_file` — whether a file you just edited conforms, without waiting for CI.
 
-Add it to Claude Code:
-
-```bash
-claude mcp add archsteer -- archsteer mcp
-```
+**Using the [Claude Code plugin](#install) above?** This is already wired up — skip to
+[Quickstart](#quickstart). The rest of this section is for every other client.
 
 Add it to Cursor with one click:
 [**Install in Cursor →**](cursor://anysphere.cursor-deeplink/mcp/install?name=archsteer&config=eyJjb21tYW5kIjoiYXJjaHN0ZWVyIiwiYXJncyI6WyJtY3AiXX0%3D)
 
-Or to any MCP-compatible client's config:
+Add it to Claude Code by hand (instead of the plugin), or any other MCP-compatible client:
 
-```json
-{ "mcpServers": { "archsteer": { "command": "archsteer", "args": ["mcp"] } } }
+```bash
+claude mcp add archsteer -- uvx archsteer mcp    # no separate pip install needed
 ```
 
+Or in JSON config directly:
+
+```json
+{ "mcpServers": { "archsteer": { "command": "uvx", "args": ["archsteer", "mcp"] } } }
+```
+
+(Already have `archsteer` on PATH via `pip`/`pipx`? `{"command": "archsteer", "args": ["mcp"]}`
+works identically — `uvx` just means no install step at all.)
+
 Also published to the [official MCP registry](https://registry.modelcontextprotocol.io) as
-`io.github.einvoice-dev1/archsteer` (runnable via `uvx archsteer mcp`).
+`io.github.einvoice-dev1/archsteer`.
 
 ## CI / pre-commit / pre-push
 
@@ -198,8 +204,14 @@ archsteer init && archsteer map && archsteer report   # open .archsteer/report.h
   drift/decision time-series. `archsteer mcp`: a local MCP server so agents query the live
   model + intent mid-edit. An org-wide, hosted MCP server (Team tier) so agents can ask
   cross-repo questions against the situation room — "what's our drift index," "which repos
-  have pending ADRs" — the same data as the dashboard, over MCP.
-- **Later** — auth, org/repo model, billing.
+  have pending ADRs" — the same data as the dashboard, over MCP. A [Claude Code
+  plugin](#install) (skill + commands + the MCP server, one install). A dedicated
+  **Next.js App Router pack** (layers from `page.tsx`/`layout.tsx`/`route.ts`,
+  `tsconfig.json` path-alias resolution, Supabase/Prisma-aware data-access detection).
+  `archsteer install-hooks`: the same net-new conformance ratchet as CI, wired into a
+  local git pre-push hook.
+- **Later** — a VS Code extension (inline diagnostics, status-bar score — the CLI/MCP
+  already work in any editor today), auth, org/repo model, billing.
 
 ## Development
 
