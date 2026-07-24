@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "archsteer": {
+      "command": "uvx",
+      "args": ["archsteer", "mcp"]
+    }
+  }
+}

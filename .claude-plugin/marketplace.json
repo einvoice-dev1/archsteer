@@ -1,0 +1,38 @@
+{
+  "name": "archsteer",
+  "owner": {
+    "name": "ArchSteer",
+    "url": "https://www.archsteer.com"
+  },
+  "metadata": {
+    "description": "Official ArchSteer plugin marketplace — architecture governance for AI coding agents."
+  },
+  "plugins": [
+    {
+      "name": "archsteer",
+      "source": "./",
+      "description": "Architecture governance for AI coding agents — derive the real architecture from any repo, enforce declared rules with a net-new ratchet, and stop agents drifting off pattern before code ships.",
+      "version": "0.9.0",
+      "author": {
+        "name": "ArchSteer",
+        "url": "https://www.archsteer.com"
+      },
+      "homepage": "https://www.archsteer.com",
+      "repository": "https://github.com/einvoice-dev1/archsteer",
+      "license": "MIT",
+      "category": "development",
+      "keywords": [
+        "architecture",
+        "governance",
+        "conformance",
+        "code-quality",
+        "mcp",
+        "ai-agents",
+        "nextjs",
+        "java",
+        "salesforce",
+        "security"
+      ]
+    }
+  ]
+}

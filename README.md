@@ -29,6 +29,20 @@ Everything is a projection of one code-derived model — `.archsteer/model.json`
 
 ## Install
 
+**As a Claude Code plugin** (recommended if you use Claude Code):
+
+```
+/plugin marketplace add einvoice-dev1/archsteer
+/plugin install archsteer@archsteer
+```
+
+This installs the bundled MCP server (`current_architecture`, `get_target_pattern`,
+`check_file` — via `uvx`, no separate `pip install` needed) plus a skill that teaches
+the agent when to x-ray, check, and steer on its own, and `/xray` / `/check` commands.
+See [`.claude-plugin/plugin.json`](.claude-plugin/plugin.json) for the manifest.
+
+**As a CLI** (works with any editor/agent, or standalone):
+
 ```bash
 pip install archsteer                 # regex engine + the local MCP server, zero native deps
 pip install "archsteer[treesitter]"   # optional native acceleration

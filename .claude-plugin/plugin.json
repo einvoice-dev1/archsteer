@@ -1,0 +1,30 @@
+{
+  "name": "archsteer",
+  "version": "0.9.0",
+  "description": "Architecture governance for AI coding agents — derive the real architecture from any repo, enforce declared rules with a net-new ratchet, and stop agents drifting off pattern before code ships.",
+  "author": {
+    "name": "ArchSteer",
+    "url": "https://www.archsteer.com"
+  },
+  "homepage": "https://www.archsteer.com",
+  "repository": "https://github.com/einvoice-dev1/archsteer",
+  "license": "MIT",
+  "keywords": [
+    "architecture",
+    "governance",
+    "conformance",
+    "code-quality",
+    "mcp",
+    "ai-agents",
+    "linting",
+    "nextjs",
+    "java",
+    "spring",
+    "salesforce",
+    "security"
+  ],
+  "commands": [
+    "./commands/xray.md",
+    "./commands/check.md"
+  ]
+}
